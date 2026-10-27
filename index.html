@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#ffffff" />
+    <link rel="manifest" href="/manifest.json" />
+    <title>SAE - Sistema de Apoio Educacional</title>
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js')
+            .then(registration => console.log('SW registered: ', registration))
+            .catch(registrationError => console.log('SW registration failed: ', registrationError));
+        });
+      }
+    </script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Poppins:wght@500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <script>
+      // Cada token le uma variavel CSS (canais RGB + alfa opcional) definida em <style>,
+      // e continua aceitando classes com opacidade (ex.: bg-sae-accent/10).
+      const saeColor = (name) => ({ opacityValue }) =>
+        opacityValue === undefined || String(opacityValue).startsWith('var(')
+          ? `rgb(var(--sae-${name}) / var(--sae-${name}-a, 1))`
+          : `rgb(var(--sae-${name}) / ${opacityValue})`;
+
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              sae: {
+                dark: saeColor('dark'),
+                darker: saeColor('darker'),
+                card: saeColor('card'),
+                accent: saeColor('accent'),
+                accentHover: saeColor('accent-hover'),
+                accentSoft: saeColor('accent-soft'),
+                accentText: saeColor('accent-text'),
+                accentAlt: saeColor('success'),
+                success: saeColor('success'),
+                danger: saeColor('danger'),
+                text: saeColor('text'),
+                muted: saeColor('muted'),
+                border: saeColor('border'),
+                soft: saeColor('soft'),
+              },
+            },
+            fontFamily: {
+              sans: ["Inter", "system-ui", "sans-serif"],
+              heading: ["Poppins", "Inter", "system-ui", "sans-serif"],
+            },
+            keyframes: {
+              fadeIn: {
+                from: { opacity: '0', transform: 'translateY(6px)' },
+                to: { opacity: '1', transform: 'translateY(0)' },
+              },
+            },
+            animation: {
+              fadeIn: 'fadeIn 0.3s ease-out both',
+              'fade-in': 'fadeIn 0.3s ease-out both',
+            },
+          },
+        },
+      };
+    </script>
+    <style>
+      /* Identidade visual ITEQ: marca #a02d32, texto #232323, secundario #636262 */
+      :root {
+        --sae-accent: 160 45 50;
+        --sae-accent-hover: 132 31 36;
+        --sae-accent-soft: 247 235 236;
+        --sae-accent-text: 160 45 50;
+        --sae-text: 35 35 35;
+        --sae-muted: 99 98 98;
+        --sae-darker: 255 255 255;
+        --sae-card: 255 255 255;
+        --sae-border: 229 231 235;
+        --sae-soft: 0 0 0;
+        --sae-soft-a: 0.04;
+        --sae-dark: 247 247 248;
+        --sae-success: 22 128 75;
+        --sae-danger: 185 28 28;
+        color-scheme: light;
+      }
+      body {
+        font-family: "Inter", system-ui, sans-serif;
+        color: rgb(var(--sae-text));
+        background-color: #ffffff;
+        background-image:
+          radial-gradient(circle at 0% 0%, rgba(160, 45, 50, 0.08), transparent 38%),
+          radial-gradient(circle at 100% 100%, rgba(160, 45, 50, 0.08), transparent 38%);
+        background-attachment: fixed;
+        background-repeat: no-repeat;
+      }
+      h1, h2, h3 {
+        font-family: "Poppins", "Inter", system-ui, sans-serif;
+        font-weight: 700;
+      }
+      /* Custom Scrollbar */
+      ::-webkit-scrollbar {
+        width: 8px;
+      }
+      ::-webkit-scrollbar-track {
+        background: #f3f3f4;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: #c9c9cc;
+        border-radius: 4px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: #a02d32;
+      }
+    </style>
+    <script type="importmap">
+      {
+        "imports": {
+          "react": "https://esm.sh/react@^19.2.4",
+          "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
+          "react/": "https://esm.sh/react@^19.2.4/",
+          "react-router-dom": "https://esm.sh/react-router-dom@^7.13.0",
+          "lucide-react": "https://esm.sh/lucide-react@^0.563.0"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+  </body>
+</html>

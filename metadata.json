@@ -1,0 +1,5 @@
+{
+  "name": "SAE - Sistema de Apoio Educacional",
+  "description": "Institutional frontend skeleton for SAE, featuring a responsive design with the ITEQ visual identity (light theme), comprehensive navigation, and 12 functional page views for course information and user dashboards.",
+  "requestFramePermissions": []
+}
