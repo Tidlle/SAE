@@ -216,18 +216,42 @@ returns json language sql security definer set search_path = public as $$
   );
 $$;
 
+-- Tempo por usuario e por pagina: uma linha por (login, rota). O tempo e o da aba visivel, registrado no evento "leave";
+-- visitas sem "leave" (aba fechada de repente) contam como visita, mas nao entram no tempo (timed = visitas com tempo).
+create or replace function public.sae_time_by_user(p_from timestamptz, p_to timestamptz)
+returns json language sql security definer set search_path = public as $$
+  with ev as (select * from sae_events where ts >= p_from and ts <= p_to),
+  visits as (
+    select pv_id, min(login) as login, min(role) as role, min(route) as route
+    from ev where type = 'pageview' group by pv_id
+  ),
+  stay as (
+    select pv_id, max(duration_s) as dur from ev where type = 'leave' group by pv_id
+  )
+  select coalesce(json_agg(r order by r.total_s desc), '[]'::json) from (
+    select v.login, max(v.role) as role, v.route,
+           count(*) as visits,
+           count(s.dur) as timed,
+           coalesce(sum(s.dur), 0)::int as total_s
+    from visits v left join stay s on s.pv_id = v.pv_id
+    group by v.login, v.route
+  ) r;
+$$;
+
 revoke all on function public.sae_overview(timestamptz, timestamptz) from public, anon, authenticated;
 revoke all on function public.sae_routes(timestamptz, timestamptz) from public, anon, authenticated;
 revoke all on function public.sae_users(timestamptz, timestamptz) from public, anon, authenticated;
 revoke all on function public.sae_heatmap(text, timestamptz, timestamptz, text, integer) from public, anon, authenticated;
 revoke all on function public.sae_journey(text, timestamptz, timestamptz) from public, anon, authenticated;
 revoke all on function public.sae_flow(timestamptz, timestamptz) from public, anon, authenticated;
+revoke all on function public.sae_time_by_user(timestamptz, timestamptz) from public, anon, authenticated;
 grant execute on function public.sae_overview(timestamptz, timestamptz) to service_role;
 grant execute on function public.sae_routes(timestamptz, timestamptz) to service_role;
 grant execute on function public.sae_users(timestamptz, timestamptz) to service_role;
 grant execute on function public.sae_heatmap(text, timestamptz, timestamptz, text, integer) to service_role;
 grant execute on function public.sae_journey(text, timestamptz, timestamptz) to service_role;
 grant execute on function public.sae_flow(timestamptz, timestamptz) to service_role;
+grant execute on function public.sae_time_by_user(timestamptz, timestamptz) to service_role;
 
 -- Retencao (opcional): apaga eventos com mais de 180 dias todo dia as 03:00.
 -- Exige a extensao pg_cron (Database > Extensions > pg_cron). Descomente para ativar:

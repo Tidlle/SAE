@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Bell,
@@ -14,14 +14,18 @@ import {
 import { Layout } from '../components/Layout';
 import { Card } from '../components/UI';
 import { Feed } from '../components/Feed';
+import { NoticeDialog } from '../components/NoticeDialog';
 import { InstitutionsSection } from '../components/InstitutionsSection';
 import { cell, fetchSheet } from '../lib/sheets';
 import { firstName } from '../lib/text';
 
-const CAROUSEL_IMAGES = [
-  'https://iteqescolas.com.br/SAE/10.jpg',
-  'https://iteqescolas.com.br/SAE/11.jpg',
-  'https://iteqescolas.com.br/SAE/12.jpg'
+const CAROUSEL_INTERVAL_MS = 15000; // tempo de cada slide, em milissegundos
+
+// `art: true` = arte pronta (banner com texto): aparece sem o escurecimento aplicado às fotos.
+const CAROUSEL_SLIDES: { src: string; art?: boolean }[] = [
+  { src: `${import.meta.env.BASE_URL}hero-SAE-1.jpg`, art: true }, // Novidades; os arquivos ficam em public/ e vão junto com o site
+  { src: `${import.meta.env.BASE_URL}hero-SAE-2.png`, art: true }, // Nossas instituições
+  { src: `${import.meta.env.BASE_URL}hero-SAE-3.png`, art: true }, // Meu Assistente
 ];
 
 const QUICK_LINKS = [
@@ -37,6 +41,7 @@ interface Notice {
   title: string;
   message: string;
   date: string;
+  sector: string;
 }
 
 const greeting = (): string => {
@@ -48,34 +53,44 @@ const greeting = (): string => {
 
 const Banner: React.FC = () => {
   const [currentIndex, setCurrentIndex] = useState(0);
+  // Imagens que não carregaram (arquivo ausente ou fora do ar) saem do carrossel, em vez de deixar um slide preto
+  const [broken, setBroken] = useState<string[]>([]);
+  const slides = CAROUSEL_SLIDES.filter((slide) => !broken.includes(slide.src));
+  const count = Math.max(slides.length, 1);
+  const current = currentIndex % count;
 
-  // Auto-rotate every 5 seconds
+  // Troca de slide automática (o banner de novidades tem texto e precisa de tempo para ser lido)
   useEffect(() => {
     const interval = setInterval(() => {
-      setCurrentIndex((prev) => (prev + 1) % CAROUSEL_IMAGES.length);
-    }, 5000);
+      setCurrentIndex((prev) => (prev + 1) % count);
+    }, CAROUSEL_INTERVAL_MS);
     return () => clearInterval(interval);
-  }, []);
+  }, [count]);
 
   const prevSlide = () => {
-    setCurrentIndex((prev) => (prev - 1 + CAROUSEL_IMAGES.length) % CAROUSEL_IMAGES.length);
+    setCurrentIndex((prev) => (prev - 1 + count) % count);
   };
 
   const nextSlide = () => {
-    setCurrentIndex((prev) => (prev + 1) % CAROUSEL_IMAGES.length);
+    setCurrentIndex((prev) => (prev + 1) % count);
   };
 
   return (
     <div className="relative w-full h-52 sm:h-64 lg:h-80 overflow-hidden rounded-2xl bg-black shadow-lg shadow-black/10">
-      {CAROUSEL_IMAGES.map((img, index) => (
+      {slides.map((slide, index) => (
         <div
-          key={index}
+          key={slide.src}
           className={`absolute inset-0 transition-opacity duration-1000 ease-in-out ${
-            index === currentIndex ? 'opacity-100' : 'opacity-0'
+            index === current ? 'opacity-100' : 'opacity-0'
           }`}
         >
-          <img src={img} alt={`Slide ${index + 1}`} className="w-full h-full object-cover object-center" />
-          <div className="absolute inset-0 bg-black/20"></div>
+          <img
+            src={slide.src}
+            alt={`Slide ${index + 1}`}
+            onError={() => setBroken((list) => [...list, slide.src])}
+            className="w-full h-full object-cover object-center"
+          />
+          {!slide.art && <div className="absolute inset-0 bg-black/20"></div>}
         </div>
       ))}
 
@@ -95,13 +110,13 @@ const Banner: React.FC = () => {
       </button>
 
       <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2 z-10">
-        {CAROUSEL_IMAGES.map((_, index) => (
+        {slides.map((_, index) => (
           <button
             key={index}
             onClick={() => setCurrentIndex(index)}
             aria-label={`Ir para o slide ${index + 1}`}
             className={`h-2.5 rounded-full transition-all ${
-              index === currentIndex ? 'bg-sae-accent w-8' : 'bg-white/60 hover:bg-white w-2.5'
+              index === current ? 'bg-sae-accent w-8' : 'bg-white/60 hover:bg-white w-2.5'
             }`}
           />
         ))}
@@ -114,6 +129,8 @@ const RecentNotices: React.FC = () => {
   const [notices, setNotices] = useState<Notice[]>([]);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
+  const [reading, setReading] = useState<Notice | null>(null);
+  const closeNotice = useCallback(() => setReading(null), []);
 
   useEffect(() => {
     let active = true;
@@ -121,7 +138,7 @@ const RecentNotices: React.FC = () => {
       .then((rows) => {
         if (!active) return;
         const parsed = rows
-          .map((row) => ({ title: cell(row, 0), message: cell(row, 1), date: cell(row, 2) }))
+          .map((row) => ({ title: cell(row, 0), message: cell(row, 1), date: cell(row, 2), sector: cell(row, 3) }))
           .filter((notice) => notice.title || notice.message)
           .reverse()
           .slice(0, 3);
@@ -157,13 +174,21 @@ const RecentNotices: React.FC = () => {
         <ul className="divide-y divide-sae-border">
           {notices.map((notice, index) => (
             <li key={index} className="py-3 first:pt-0 last:pb-0">
-              <p className="font-semibold text-sae-text leading-snug">{notice.title || 'Aviso'}</p>
-              {notice.date && <p className="text-xs text-sae-muted mt-0.5">{notice.date}</p>}
-              {notice.message && <p className="text-sm text-sae-muted mt-1 line-clamp-2">{notice.message}</p>}
+              <button
+                type="button"
+                onClick={() => setReading(notice)}
+                aria-haspopup="dialog"
+                className="block w-full text-left rounded-lg -mx-2 px-2 py-1 -my-1 hover:bg-sae-soft focus-visible:bg-sae-soft transition-colors"
+              >
+                <span className="block font-semibold text-sae-text leading-snug">{notice.title || 'Aviso'}</span>
+                {notice.date && <span className="block text-xs text-sae-muted mt-0.5">{notice.date}</span>}
+                <span className="block text-sm font-semibold text-sae-accentText mt-1">Ler mais</span>
+              </button>
             </li>
           ))}
         </ul>
       )}
+      <NoticeDialog notice={reading} onClose={closeNotice} />
     </Card>
   );
 };

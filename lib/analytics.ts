@@ -53,6 +53,15 @@ export interface JourneyEvent {
   browser: string | null;
 }
 
+export interface TimeRow {
+  login: string;
+  role: string | null;
+  route: string;
+  visits: number;
+  timed: number; // visitas com tempo registrado
+  total_s: number;
+}
+
 export interface FlowData {
   transitions: { from: string; to: string; n: number }[];
   paths: { path: string; n: number }[];
@@ -65,6 +74,7 @@ interface QueryMap {
   heatmap: { params: Period & { route: string; target?: string; vw?: number }; data: HeatmapData };
   journey: { params: Period & { target: string }; data: JourneyEvent[] };
   flow: { params: Period; data: FlowData };
+  time: { params: Period; data: TimeRow[] };
 }
 
 // Consulta o painel de análises pelo Apps Script (só responde para Administrativo).
@@ -121,6 +131,10 @@ export const formatDuration = (seconds: number | null | undefined): string => {
   if (seconds === null || seconds === undefined) return '-';
   if (seconds < 60) return `${seconds}s`;
   const minutes = Math.floor(seconds / 60);
+  if (minutes >= 60) {
+    const hours = Math.floor(minutes / 60);
+    return minutes % 60 ? `${hours}h ${minutes % 60}min` : `${hours}h`;
+  }
   const rest = seconds % 60;
   return rest ? `${minutes}min ${rest}s` : `${minutes}min`;
 };

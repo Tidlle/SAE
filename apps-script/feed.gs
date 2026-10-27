@@ -51,7 +51,7 @@ var MAX_TITLE = 120;
 var MAX_MESSAGE = 2000;
 var MAX_LINK = 500;
 var COOLDOWN_SECONDS = 10;
-var SCRIPT_VERSION = 'feed-9-assistente-ia';
+var SCRIPT_VERSION = 'feed-10-tempo-por-usuario';
 var MAX_IMAGES = 4;
 var MAX_IMAGE_BYTES = 1500000;
 var IMAGE_FOLDER_NAME = 'SAE Feed - Imagens';
@@ -64,6 +64,7 @@ var ANALYTICS_FUNCTIONS = {
   heatmap: 'sae_heatmap',
   journey: 'sae_journey',
   flow: 'sae_flow',
+  time: 'sae_time_by_user',
 };
 var ANALYTICS_MAX_DAYS = 92;
 
