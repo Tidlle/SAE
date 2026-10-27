@@ -1,28 +1,33 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Layout } from '../components/Layout';
 import { Card, Button, Breadcrumb } from '../components/UI';
+import { HistoryPanel } from '../components/assistant/HistoryPanel';
 import { CopyButton } from '../components/CopyButton';
 import { ReplyView } from '../components/assistant/ReplyView';
-import { Send, Bot, User, Sparkles, Trash2, AlertCircle, RefreshCw } from 'lucide-react';
+import { Send, Bot, User, Sparkles, Plus, History, AlertCircle, RefreshCw } from 'lucide-react';
 import { Catalog, loadCatalog } from '../lib/assistant/catalog';
 import { Agenda, loadAgenda } from '../lib/assistant/calendar';
 import { AI_FALLBACK_TAGS, AiTurn, askAi } from '../lib/assistant/ai';
 import { Block, Chip, Context, EMPTY_CONTEXT, HELP_CHIPS, Reply, answerQuestion, replyToPlain } from '../lib/assistant/engine';
 import { trackAction } from '../lib/tracker';
+import {
+  ChatMessage as Message,
+  EMPTY_STORE,
+  Store,
+  clearStore,
+  fromStored,
+  groupConversations,
+  loadStore,
+  newConversationId,
+  removeConversation,
+  saveStore,
+  searchConversations,
+  upsertConversation,
+} from '../lib/assistant/history';
 
-interface Message {
-  id: string;
-  role: 'user' | 'assistant';
-  text?: string;
-  reply?: Reply;
-  loading?: boolean; // esperando dados (calendário de aulas) ou a IA
-  loadingText?: string;
-  loadedAt?: Date; // quando os dados da resposta foram lidos
-  timestamp: Date;
-}
-
-// Meu Assistente: responde sobre cursos, valores, combos e documentos lendo a planilha do SAE.
-// Não usa IA nem chave de API: a resposta sai direto das células e sempre mostra a fonte.
+// Meu Assistente: responde sobre cursos, valores, combos, documentos, turmas, instituições e mais, lendo a planilha do SAE.
+// A base responde primeiro (sem custo, sempre com a fonte); só o que ela não sabe vai para a IA de reserva.
+// As conversas ficam salvas no navegador de cada usuário (lib/assistant/history.ts).
 export const AssistentePessoal: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
@@ -34,6 +39,52 @@ export const AssistentePessoal: React.FC = () => {
   const [aiOff, setAiOff] = useState(false); // a IA não está configurada no servidor: para de tentar nesta sessão
   const messagesRef = useRef<Message[]>([]);
   messagesRef.current = messages;
+
+  // Histórico: lista de conversas salvas neste navegador (por login) e a conversa aberta
+  const login = localStorage.getItem('userLogin') ?? '';
+  const [store, setStore] = useState<Store>(EMPTY_STORE);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false); // no celular a lista abre por cima da conversa
+  const [search, setSearch] = useState('');
+  const storeRef = useRef<Store>(EMPTY_STORE);
+  const activeIdRef = useRef<string | null>(null);
+  const loadedMessages = useRef<Message[] | null>(null); // lista que acabou de ser aberta do histórico: não precisa ser regravada
+  const saveTimer = useRef<ReturnType<typeof setTimeout>>();
+  storeRef.current = store;
+  activeIdRef.current = activeId;
+
+  // Ao entrar, reabre a última conversa
+  useEffect(() => {
+    const saved = loadStore(login);
+    setStore(saved);
+    const last = saved.conversations.find((conversation) => conversation.id === saved.activeId);
+    if (last) {
+      const restored = fromStored(last.messages);
+      loadedMessages.current = restored;
+      setActiveId(last.id);
+      setMessages(restored);
+    }
+  }, [login]);
+
+  // Grava a conversa aberta (com um pequeno atraso, para não gravar a cada tecla)
+  const persistNow = useCallback(() => {
+    clearTimeout(saveTimer.current);
+    if (messagesRef.current.every((message) => message.loading)) return;
+    const id = activeIdRef.current ?? newConversationId();
+    const next = saveStore(login, upsertConversation(storeRef.current, id, messagesRef.current));
+    if (next === storeRef.current) return;
+    activeIdRef.current = id;
+    setActiveId(id);
+    storeRef.current = next;
+    setStore(next);
+  }, [login]);
+
+  useEffect(() => {
+    if (messages === loadedMessages.current) return;
+    clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(persistNow, 400);
+    return () => clearTimeout(saveTimer.current);
+  }, [messages, persistNow]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -134,13 +185,54 @@ export const AssistentePessoal: React.FC = () => {
 
   const handlePick = (chip: Chip) => send(chip.label, chip.query);
 
-  const handleNewConversation = () => {
-    setMessages([]);
-    setCtx(EMPTY_CONTEXT);
+  const resetConversation = (nextId: string | null, nextMessages: Message[]) => {
+    loadedMessages.current = nextMessages;
+    activeIdRef.current = nextId;
+    setActiveId(nextId);
+    setMessages(nextMessages);
+    setCtx(EMPTY_CONTEXT); // o contexto ("e os documentos?") não vale para uma conversa de outra hora
     setInput('');
+    setHistoryOpen(false);
     inputRef.current?.focus();
   };
 
+  const handleNewConversation = () => {
+    persistNow();
+    const next = { ...storeRef.current, activeId: null };
+    storeRef.current = saveStore(login, next);
+    setStore(storeRef.current);
+    resetConversation(null, []);
+  };
+
+  const handleSelectConversation = (id: string) => {
+    if (id === activeIdRef.current) {
+      setHistoryOpen(false);
+      return;
+    }
+    persistNow();
+    const conversation = storeRef.current.conversations.find((item) => item.id === id);
+    if (!conversation) return;
+    storeRef.current = saveStore(login, { ...storeRef.current, activeId: id });
+    setStore(storeRef.current);
+    resetConversation(id, fromStored(conversation.messages));
+  };
+
+  const handleDeleteConversation = (id: string) => {
+    if (!window.confirm('Apagar esta conversa do histórico?')) return;
+    const next = saveStore(login, removeConversation(storeRef.current, id));
+    storeRef.current = next;
+    setStore(next);
+    if (id === activeIdRef.current) resetConversation(null, []);
+  };
+
+  const handleClearHistory = () => {
+    if (!window.confirm('Apagar todas as conversas salvas neste navegador?')) return;
+    storeRef.current = clearStore(login);
+    setStore(storeRef.current);
+    resetConversation(null, []);
+  };
+
+  const groups = groupConversations(searchConversations(store.conversations, search));
   const lastAssistantId = [...messages].reverse().find((message) => message.role === 'assistant')?.id;
   const userName = localStorage.getItem('userNome')?.split(' ')[0] || 'Colaborador';
   const ready = !loading && catalog !== null;
@@ -150,21 +242,60 @@ export const AssistentePessoal: React.FC = () => {
       <div className="container mx-auto px-4 lg:px-8 py-6 h-[calc(100vh-80px)] flex flex-col">
         <Breadcrumb items={[{ label: 'Meu Assistente Pessoal' }]} />
 
-        <Card className="flex-1 flex flex-col overflow-hidden border-sae-accent/20 bg-sae-darker/80 backdrop-blur-xl">
+        <Card className="flex-1 flex flex-row overflow-hidden relative border-sae-accent/20 bg-sae-darker/80 backdrop-blur-xl">
+          {/* Histórico (computador) */}
+          <aside className="hidden md:flex w-72 shrink-0 flex-col border-r border-sae-border bg-sae-soft">
+            <HistoryPanel
+              groups={groups}
+              total={store.conversations.length}
+              activeId={activeId}
+              search={search}
+              onSearch={setSearch}
+              onSelect={handleSelectConversation}
+              onDelete={handleDeleteConversation}
+              onNew={handleNewConversation}
+              onClearAll={handleClearHistory}
+            />
+          </aside>
+
+          {/* Histórico (celular): abre por cima da conversa */}
+          {historyOpen && (
+            <div className="md:hidden absolute inset-0 z-20 bg-sae-darker">
+              <HistoryPanel
+                groups={groups}
+                total={store.conversations.length}
+                activeId={activeId}
+                search={search}
+                onSearch={setSearch}
+                onSelect={handleSelectConversation}
+                onDelete={handleDeleteConversation}
+                onNew={handleNewConversation}
+                onClearAll={handleClearHistory}
+                onClose={() => setHistoryOpen(false)}
+              />
+            </div>
+          )}
+
+          <div className="flex-1 min-w-0 flex flex-col">
           {/* Header */}
           <div className="p-4 sm:p-6 border-b border-sae-border flex items-center justify-between gap-3 bg-gradient-to-r from-sae-accent/10 via-transparent to-transparent">
             <div className="flex items-center gap-3 min-w-0">
-              <div className="w-12 h-12 rounded-full bg-sae-accent/20 flex items-center justify-center border border-sae-accent/50 shrink-0">
+              <div className="hidden sm:flex w-12 h-12 rounded-full bg-sae-accent/20 items-center justify-center border border-sae-accent/50 shrink-0">
                 <Sparkles size={24} className="text-sae-accentText" />
               </div>
               <div className="min-w-0">
-                <h2 className="text-lg font-bold text-sae-text">Meu Assistente Pessoal</h2>
+                <h2 className="text-base sm:text-lg font-bold text-sae-text leading-tight">Meu Assistente Pessoal</h2>
                 <p className="text-xs text-sae-muted flex items-center gap-1.5">
                   <span className={`w-2 h-2 rounded-full shrink-0 ${ready ? 'bg-sae-success animate-pulse' : error ? 'bg-sae-danger' : 'bg-sae-muted'}`}></span>
                   {loading
                     ? 'Carregando a base de cursos...'
                     : catalog
-                      ? `${catalog.courses.length} cursos, ${catalog.combos.length} combos e ${catalog.presential.length} turmas presenciais, lidos às ${catalog.loadedAt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`
+                      ? (
+                          <>
+                            <span className="sm:hidden">{`${catalog.courses.length} cursos, lidos às ${catalog.loadedAt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`}</span>
+                            <span className="hidden sm:inline">{`${catalog.courses.length} cursos, ${catalog.combos.length} combos e ${catalog.presential.length} turmas presenciais, lidos às ${catalog.loadedAt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`}</span>
+                          </>
+                        )
                       : 'Base indisponível'}
                 </p>
               </div>
@@ -180,11 +311,20 @@ export const AssistentePessoal: React.FC = () => {
                 <span className="hidden sm:inline">Atualizar</span>
               </button>
               <button
+                onClick={() => setHistoryOpen(true)}
+                className="md:hidden flex items-center gap-2 px-3 py-2 text-xs text-sae-muted hover:text-sae-text hover:bg-sae-accent/10 rounded-lg transition-colors border border-sae-border hover:border-sae-accent/30"
+                title="Histórico de conversas"
+                aria-label="Histórico de conversas"
+              >
+                <History size={14} />
+                {store.conversations.length > 0 && <span className="text-[10px] font-bold">{store.conversations.length}</span>}
+              </button>
+              <button
                 onClick={handleNewConversation}
                 className="flex items-center gap-2 px-3 py-2 text-xs text-sae-muted hover:text-sae-text hover:bg-sae-accent/10 rounded-lg transition-colors border border-sae-border hover:border-sae-accent/30"
                 title="Nova Conversa"
               >
-                <Trash2 size={14} />
+                <Plus size={14} />
                 <span className="hidden sm:inline">Nova Conversa</span>
               </button>
             </div>
@@ -305,6 +445,7 @@ export const AssistentePessoal: React.FC = () => {
             <p className="text-center mt-2 text-[10px] text-sae-muted">
               Os valores vêm da planilha do SAE e mudam quando ela muda. Respostas marcadas como IA podem conter erros: confirme com o Financeiro.
             </p>
+          </div>
           </div>
         </Card>
       </div>

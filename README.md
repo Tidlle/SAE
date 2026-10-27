@@ -122,6 +122,16 @@ A página `/assistente` (`pages/AssistentePessoal.tsx`) responde perguntas sobre
 - **Interface** (`components/assistant/ReplyView.tsx`): tabelas, listas e botões de seguimento, com "Copiar resposta" no formato do WhatsApp. O uso é registrado no painel de análises apenas pelo tipo de resposta (`Assistente: ...`), nunca pelo texto da pergunta.
 - **Chatbot das páginas de curso** (`components/Chatbot.tsx`) continua usando o Gemini com uma chave escrita no código, que hoje está inválida.
 
+### Histórico de conversas
+
+O Meu Assistente guarda as conversas para a pessoa voltar a elas (`lib/assistant/history.ts` e `components/assistant/HistoryPanel.tsx`).
+
+- **Onde fica:** no navegador (localStorage), numa chave por login (`saeAssistantHistory:v1:<login>`). Não vai para nenhum servidor, não acompanha a pessoa em outro computador ou navegador e outro usuário do mesmo navegador não vê as conversas dela.
+- **Como funciona:** cada conversa é salva sozinha, com um pequeno atraso, a partir da primeira pergunta; o título é a primeira pergunta. Ao abrir a página, a última conversa é reaberta. A lista fica na lateral (no celular, abre pelo botão de histórico no cabeçalho) e agrupa por Hoje, Ontem, Últimos 7 dias e Mais antigas. Dá para buscar (no título e no texto das mensagens), abrir, apagar uma conversa ou apagar todo o histórico. "Nova Conversa" não apaga nada: começa outra.
+- **Limites:** até 25 conversas e 60 mensagens por conversa (as mais antigas saem). Se o navegador ficar sem espaço, as conversas mais antigas são apagadas e a aberta é mantida.
+- **Privacidade:** o que a pessoa digitou é guardado sem CPF, CNPJ, e-mail e telefone. O texto da resposta é guardado como foi exibido, então os valores mostram o que a planilha dizia naquela hora.
+- **Ao reabrir uma conversa antiga:** os botões que dependem da posição na planilha (escolher um curso da lista, "mostrar mais") somem, porque a planilha pode ter mudado; os botões de texto continuam. As respostas pendentes (IA, agenda) não são guardadas, e perguntas de continuação ("e os documentos?") valem só para a conversa em andamento.
+
 ### IA de reserva
 
 Quando o motor não entende ou não acha a resposta (curso não encontrado, pergunta fora do que ele sabe, assunto sem resposta pronta), a pergunta vai para o modelo `claude-sonnet-5` por um gateway compatível com a API da OpenAI (`https://lobocode.space`). A resposta aparece marcada como "gerada por IA".

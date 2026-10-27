@@ -3,7 +3,7 @@ import { INSTITUTION_NAMES } from './institutions';
 import { MAX_IMAGES } from './images';
 
 // URL do aplicativo da Web do Apps Script (apps-script/feed.gs). Vazia = feed somente leitura.
-export const FEED_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzDulmm82I-haHxKrght99I3vXgJ1LcbRtihyy6M_ksQ1VriJ3Db-EZlbvk6Ia7O5MQsQ/exec';
+export const FEED_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycby5oQcymfRCBQetbHFu4mPwVYh4sMOLkZPw5jhAEvb7ZdQeC0716V4wPUO_K8IpuYGCcg/exec';
 
 export const FEED_CATEGORIES = ['Novo curso', 'Aviso', 'Geral'] as const;
 export type FeedCategory = (typeof FEED_CATEGORIES)[number];
