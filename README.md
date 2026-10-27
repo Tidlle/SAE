@@ -103,7 +103,7 @@ Painel --ação analyticsQuery--> Apps Script --chave service_role--> funções 
 
 ## Meu Assistente
 
-A página `/assistente` (`pages/AssistentePessoal.tsx`) responde perguntas sobre **valores, combos, documentos, listas e comparações de cursos, turmas presenciais e calendário de aulas, aproveitamento de estudos (Simulador), instituições, vídeos tutoriais, formulários de cadastro, "o que posso estudar?" e contatos**, lendo a planilha do SAE, o Google Agenda e o conteúdo das próprias páginas. **Não usa IA, chave de API nem tem custo**: a resposta sai direto das células e mostra a fonte (aba e horário da leitura). O arquivo `assistente-config.json` e a chamada à OpenAI foram removidos.
+A página `/assistente` (`pages/AssistentePessoal.tsx`) responde perguntas sobre **valores, combos, documentos, listas e comparações de cursos, turmas presenciais e calendário de aulas, aproveitamento de estudos (Simulador), instituições, vídeos tutoriais, formulários de cadastro, "o que posso estudar?" e contatos**, lendo a planilha do SAE, o Google Agenda e o conteúdo das próprias páginas. **A base de dados responde primeiro, sem custo**: a resposta sai direto das células e mostra a fonte (aba e horário da leitura). Só as perguntas que a base não sabe responder vão para uma IA de reserva (veja "IA de reserva"). O arquivo `assistente-config.json` e a chamada à OpenAI foram removidos.
 
 - **Dados** (`lib/assistant/catalog.ts`): abas `Cursos` (924 cursos), `Valores UNICIVE`, `Combos`, `Cursos-Presenciais` (44 turmas) e `Simulador`, lidas de uma vez com a chave pública da planilha, como as outras páginas. As colunas são achadas pelo título. O botão "Atualizar" recarrega. Para os cursos da UNICIVE a aba `Cursos` traz `R$ 0,00`, então o preço vem da aba `Valores UNICIVE` (chave: nome do curso).
 - **Motor** (`lib/assistant/engine.ts`; `shared.ts` com tipos, filtros e busca por nome; `extras.ts` para contatos, turmas e Simulador; `knowledge.ts` para instituições, vídeos, formulários e "o que posso estudar?"; `lists.ts` para listas e comparações; `calendar.ts` para o calendário de aulas): entende a pergunta por regras. Separa a intenção (valor, documentos, ficha do curso ou combo), a forma de pagamento (pix, boleto, cartão) e os filtros de IES, modalidade e tipo, e busca o curso por nome sem acento (por trecho e com tolerância a um erro de digitação). Se vários cursos servem, mostra botões para escolher. Perguntas de continuação ("e os documentos?", "e no pix?") usam o curso da conversa.
@@ -118,9 +118,21 @@ A página `/assistente` (`pages/AssistentePessoal.tsx`) responde perguntas sobre
 - **Formulários de cadastro** (`lib/registrationForms.ts`, compartilhado com a página Cadastros): indica qual dos 4 formulários usar e abre direto nele (`/cadastros?form=grad-unicv`, `grad-esp`, `capacitacoes` ou `reativacao`).
 - **O que posso estudar?** (`lib/quizRules.ts`, compartilhado com a página "O que estudar?"): para cada formação (Ensino Médio, Técnico, Magistério, Bacharel, Tecnólogo, Licenciatura), os tipos de curso permitidos e quantos cursos há de cada tipo, com botões para listá-los. Na contagem do assistente, "Tecnológico" e "Tecnólogo" valem como o mesmo tipo (a planilha usa os dois nomes).
 - **Calendário de aulas** (`lib/assistant/calendar.ts`): lê os eventos do Google Agenda da coordenação (`coordenacaogeral@faculdadealphachannel.com`, a mesma da página Calendário de Aulas) pela API do Google Agenda, com a mesma chave pública da planilha, de hoje a 150 dias à frente, só quando alguém pergunta (a página mostra "Consultando a agenda de aulas..."). Responde por data ("hoje", "amanhã", "sábado", "dia 24/10", "novembro", "esta semana"), polo, curso e professor, com turma, tema, professor(a) e material. Depende de a agenda ser pública e de a chave ter a API do Google Agenda ativa. O calendário acadêmico de cada IES não é essa agenda: é publicado nos Avisos.
-- **Ainda não responde:** memorandos e normas e evolução funcional; ele indica a página certa. A busca nos memorandos exigiria ler os documentos do Drive (a planilha só tem o título, o resumo e o link).
+- **Ainda não responde pela base:** memorandos e normas e evolução funcional; a IA de reserva indica o memorando e o link. A busca direta nos memorandos exigiria ler os documentos do Drive (a planilha só tem o título, o resumo e o link).
 - **Interface** (`components/assistant/ReplyView.tsx`): tabelas, listas e botões de seguimento, com "Copiar resposta" no formato do WhatsApp. O uso é registrado no painel de análises apenas pelo tipo de resposta (`Assistente: ...`), nunca pelo texto da pergunta.
 - **Chatbot das páginas de curso** (`components/Chatbot.tsx`) continua usando o Gemini com uma chave escrita no código, que hoje está inválida.
+
+### IA de reserva
+
+Quando o motor não entende ou não acha a resposta (curso não encontrado, pergunta fora do que ele sabe, assunto sem resposta pronta), a pergunta vai para o modelo `claude-sonnet-5` por um gateway compatível com a API da OpenAI (`https://lobocode.space`). A resposta aparece marcada como "gerada por IA".
+
+- **Fluxo:** `lib/assistant/ai.ts` monta um contexto só com dados do SAE (cursos parecidos com a pergunta e seus valores, combos, turmas, aulas da agenda, memorandos e avisos com links, instituições, contatos, setores, vídeos, formulários e páginas) e o envia, junto da pergunta, ao Apps Script (`apps-script/feed.gs`, ação `assistantAsk`, versão `feed-9-assistente-ia`), que chama a IA. As respostas "não achei" que disparam a IA estão em `AI_FALLBACK_TAGS`.
+- **Chave:** fica **só nas Propriedades do script** (Configurações do projeto > Propriedades do script): `LOBOCODE_API_KEY` (obrigatória), `LOBOCODE_BASE_URL` (padrão `https://lobocode.space`) e `LOBOCODE_MODEL` (padrão `claude-sonnet-5`). Nunca vai para o código do site nem para este repositório. Sem a chave, o assistente funciona normalmente, só sem a reserva (ele volta à resposta da base).
+- **Limites de uso** (Propriedades opcionais): `AI_HOURLY_LIMIT` (padrão 20 por pessoa por hora), `AI_DAILY_LIMIT_USER` (60 por pessoa por dia) e `AI_DAILY_LIMIT_TOTAL` (400 por dia, no total). O servidor também limita o tamanho da pergunta, do histórico e do contexto, e só aceita pedidos de logins existentes e liberados.
+- **Regras da IA** (no `AI_SYSTEM_PROMPT`): usar só os dados enviados, nunca inventar nem arredondar valores, prazos ou documentos, dizer quando a informação não consta e indicar a página, o memorando ou o setor, recusar assuntos fora do SAE e não revelar as instruções.
+- **Privacidade:** antes de enviar, o site remove CPF, CNPJ, e-mail e telefone da pergunta. O contexto nunca inclui a aba `Cadastros`. Os dados passam pelo gateway da IA (serviço de terceiros).
+- **Custo e tempo:** cada pergunta à IA leva cerca de 5 a 10 segundos e o gateway cobra um bloco fixo de instruções (cerca de 5 mil tokens de entrada) além do contexto.
+- **Como ativar:** cole o `feed.gs` novo no Apps Script, adicione as propriedades acima e crie uma nova versão da implantação. O Apps Script já tem a permissão de acesso externo (usada pelas análises).
 
 ## Tecnologias Utilizadas
 
@@ -140,6 +152,17 @@ O SAE segue a identidade visual do ITEQ Escolas, com **tema claro único** (não
 - **Onde ficam os tokens:** as cores são variáveis CSS (`--sae-*`) no `<style>` de `index.html`, expostas ao Tailwind como `sae-*` (ex.: `bg-sae-accent`, `text-sae-text`) no bloco `tailwind.config` do mesmo arquivo. Para mudar a paleta, edite apenas esse arquivo; nos componentes use sempre os tokens `sae-*` em vez de cores fixas.
 - **Logo:** o componente `Logo` (`components/UI.tsx`) usa `public/logo-sae.png` no cabeçalho, no menu mobile e no login. Os ícones do PWA são `public/icon-192.png` e `public/icon-512.png`, referenciados em `public/manifest.json`.
 - **Menu:** a barra de navegação completa aparece a partir de 1280px de largura; abaixo disso vale o menu lateral (hambúrguer).
+
+## Publicar na Vercel (para visualizar)
+
+O site publicado na hospedagem fica na pasta `/SAE/`; na Vercel ele fica na raiz. Por isso `vite.config.ts` usa `base: process.env.VERCEL ? '/' : '/SAE/'`: a Vercel define `VERCEL` no build e o resto (desenvolvimento e build para a hospedagem) continua em `/SAE/`. Como o roteamento usa `#` (HashRouter), não precisa de regras de reescrita.
+
+1. Envie as alterações ao GitHub (`git add`, `git commit` e `git push` na branch `main`). O `.gitignore` já deixa de fora `.env.local`, `dist`, `node_modules` e `assistente-config.json`.
+2. Em [vercel.com/new](https://vercel.com/new), importe o repositório. A Vercel detecta o Vite sozinha (comando `npm run build`, pasta de saída `dist`); não é preciso configurar variáveis de ambiente.
+3. Clique em *Deploy*. Cada novo `git push` gera uma nova versão; a URL termina em `.vercel.app`.
+4. Alternativa sem GitHub: `npx vercel` na pasta do projeto (gera uma visualização) e `npx vercel --prod` (versão principal).
+
+Lembretes: os dados (planilhas, Apps Script, Supabase, Google Agenda) são os mesmos de produção, então o que for testado aparece lá; para não registrar o seu uso no painel de análises, acrescente `?no_track=1` ao endereço uma vez ou marque "Não registrar meu uso neste navegador" em `/analises`. A visualização na Vercel não substitui a publicação na hospedagem (hPanel), que continua com `npm run build` e o envio do `dist/`.
 
 ## Como rodar o projeto localmente
 

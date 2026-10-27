@@ -5,7 +5,8 @@ import react from '@vitejs/plugin-react';
 export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, '.', '');
     return {
-      base: '/SAE/',
+      // O site publicado na hospedagem fica na pasta /SAE/. Na Vercel (variável VERCEL definida no build) ele fica na raiz.
+      base: process.env.VERCEL ? '/' : '/SAE/',
       server: {
         port: 3000,
         host: '0.0.0.0',

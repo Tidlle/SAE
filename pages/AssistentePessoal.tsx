@@ -6,7 +6,8 @@ import { ReplyView } from '../components/assistant/ReplyView';
 import { Send, Bot, User, Sparkles, Trash2, AlertCircle, RefreshCw } from 'lucide-react';
 import { Catalog, loadCatalog } from '../lib/assistant/catalog';
 import { Agenda, loadAgenda } from '../lib/assistant/calendar';
-import { Chip, Context, EMPTY_CONTEXT, HELP_CHIPS, Reply, answerQuestion, replyToPlain } from '../lib/assistant/engine';
+import { AI_FALLBACK_TAGS, AiTurn, askAi } from '../lib/assistant/ai';
+import { Block, Chip, Context, EMPTY_CONTEXT, HELP_CHIPS, Reply, answerQuestion, replyToPlain } from '../lib/assistant/engine';
 import { trackAction } from '../lib/tracker';
 
 interface Message {
@@ -14,7 +15,8 @@ interface Message {
   role: 'user' | 'assistant';
   text?: string;
   reply?: Reply;
-  loading?: boolean; // esperando dados (calendário de aulas)
+  loading?: boolean; // esperando dados (calendário de aulas) ou a IA
+  loadingText?: string;
   loadedAt?: Date; // quando os dados da resposta foram lidos
   timestamp: Date;
 }
@@ -29,6 +31,9 @@ export const AssistentePessoal: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [ctx, setCtx] = useState<Context>(EMPTY_CONTEXT);
   const [agenda, setAgenda] = useState<Agenda | null>(null);
+  const [aiOff, setAiOff] = useState(false); // a IA não está configurada no servidor: para de tentar nesta sessão
+  const messagesRef = useRef<Message[]>([]);
+  messagesRef.current = messages;
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -82,6 +87,32 @@ export const AssistentePessoal: React.FC = () => {
           const failed: Reply = { tag: 'agenda:erro', blocks: [{ type: 'text', tone: 'warn', text: 'Não foi possível ler a agenda de aulas agora. Tente de novo em instantes ou abra o Calendário de Aulas.' }, { type: 'links', items: [{ label: 'Abrir Calendário de Aulas', href: '/cursos/calendario' }] }], chips: [], sources: [] };
           trackAction(`Assistente: ${failed.tag}`);
           setMessages((current) => current.map((message) => (message.id === pendingId ? { ...message, loading: false, reply: failed } : message)));
+        });
+      return;
+    }
+
+    // Reserva com IA: só quando a base do SAE não soube responder. A pergunta, sem dados pessoais, vai ao Apps Script.
+    if (AI_FALLBACK_TAGS.has(answer.reply.tag) && !aiOff) {
+      const pendingId = `${now}-a`;
+      setCtx(answer.ctx);
+      const history: AiTurn[] = messagesRef.current
+        .filter((message) => !message.loading && (message.text || message.reply))
+        .slice(-6)
+        .map((message) => ({ role: message.role, text: message.role === 'user' ? message.text ?? '' : replyToPlain(message.reply as Reply).slice(0, 600) }));
+      setMessages((current) => [...current, userMessage, { id: pendingId, role: 'assistant', loading: true, loadingText: 'Consultando a IA...', timestamp: new Date(now) }]);
+      askAi({ question: trimmed, history, catalog, agenda })
+        .then((reply) => {
+          trackAction('Assistente: ia');
+          setMessages((current) => current.map((message) => (message.id === pendingId ? { ...message, loading: false, reply } : message)));
+        })
+        .catch((error: Error & { code?: string }) => {
+          const notConfigured = error.code === 'not_configured' || error.code === 'auth' || /Ação inválida/.test(error.message);
+          if (notConfigured) setAiOff(true);
+          // volta à resposta da base; só avisa quando a IA existe mas recusou (limite) ou falhou
+          const note: Block[] = notConfigured ? [] : [{ type: 'text', tone: 'muted', text: error.code === 'limit' ? error.message : 'A IA não está disponível agora.' }];
+          trackAction(`Assistente: ia-${notConfigured ? 'desligada' : error.code ?? 'erro'}`);
+          const fallback: Reply = { ...answer.reply, blocks: [...answer.reply.blocks, ...note] };
+          setMessages((current) => current.map((message) => (message.id === pendingId ? { ...message, loading: false, reply: fallback } : message)));
         });
       return;
     }
@@ -209,7 +240,7 @@ export const AssistentePessoal: React.FC = () => {
                   >
                     {message.role === 'assistant' && message.loading ? (
                       <div className="flex items-center gap-2 text-sm text-sae-muted">
-                        <RefreshCw size={14} className="animate-spin" /> Consultando a agenda de aulas...
+                        <RefreshCw size={14} className="animate-spin" /> {message.loadingText ?? 'Consultando a agenda de aulas...'}
                       </div>
                     ) : message.role === 'assistant' && message.reply ? (
                       <>
@@ -272,7 +303,7 @@ export const AssistentePessoal: React.FC = () => {
               </Button>
             </div>
             <p className="text-center mt-2 text-[10px] text-sae-muted">
-              Os valores vêm da planilha do SAE e mudam quando ela muda. Em caso de dúvida, confirme com o Financeiro.
+              Os valores vêm da planilha do SAE e mudam quando ela muda. Respostas marcadas como IA podem conter erros: confirme com o Financeiro.
             </p>
           </div>
         </Card>

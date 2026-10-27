@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { AlertCircle, ExternalLink, Mail } from 'lucide-react';
+import { AlertCircle, ExternalLink, Mail, Sparkles } from 'lucide-react';
 import { Block, Chip, Reply } from '../../lib/assistant/engine';
 
 // Só links internos do SAE, e-mail e http(s): nada que venha da planilha vira outro tipo de endereço.
@@ -84,7 +84,7 @@ const BlockView: React.FC<{ block: Block }> = ({ block }) => {
     case 'list':
       return (
         <div>
-          <p className="text-xs font-bold uppercase tracking-wide text-sae-muted mb-1">{block.title}</p>
+          {block.title && <p className="text-xs font-bold uppercase tracking-wide text-sae-muted mb-1">{block.title}</p>}
           <ul className="list-disc pl-5 space-y-0.5 text-sm text-sae-text">
             {block.items.map((item, index) => (
               <li key={index}>{item}</li>
@@ -128,6 +128,12 @@ interface ReplyViewProps {
 
 export const ReplyView: React.FC<ReplyViewProps> = ({ reply, loadedAt, onPick, disabled = false, showChips = true }) => (
   <div className="space-y-3 min-w-0">
+    {reply.tag === 'ia' && (
+      <div className="flex items-start gap-2 rounded-lg bg-sae-soft border border-sae-border px-3 py-2 text-xs text-sae-muted">
+        <Sparkles size={14} className="shrink-0 mt-0.5 text-sae-accentText" />
+        <span>Resposta gerada por IA a partir dos dados do SAE. Confira valores, prazos e procedimentos antes de passar ao aluno.</span>
+      </div>
+    )}
     {reply.blocks.map((block, index) => (
       <BlockView key={index} block={block} />
     ))}

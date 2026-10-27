@@ -91,11 +91,22 @@ export interface SimulatorRow {
   destinations: { name: string; prazo: string }[];
 }
 
+// Memorando ou aviso (abas Memorandos e Avisos): título, setor, data, resumo e o link do documento.
+export interface Notice {
+  title: string;
+  summary: string;
+  date: string;
+  sector: string;
+  link: string;
+}
+
 export interface Catalog {
   courses: Course[];
   combos: Combo[];
   presential: PresentialClass[];
   simulator: SimulatorRow[];
+  memos: Notice[];
+  notices: Notice[];
   loadedAt: Date;
 }
 
@@ -287,12 +298,22 @@ export const buildSimulator = (rows: string[][]): SimulatorRow[] => {
   return result;
 };
 
+// Abas Memorandos e Avisos (A2:D): título | mensagem (resumo e link do documento) | data | setor.
+export const buildNotices = (rows: string[][]): Notice[] =>
+  rows
+    .map((row) => {
+      const message = text(row, 1);
+      const link = /https?:\/\/[^\s)"<]+/.exec(message)?.[0] ?? '';
+      return { title: text(row, 0), summary: message.replace(/https?:\/\/[^\s)"<]+/g, '').replace(/\s+/g, ' ').trim(), date: text(row, 2), sector: text(row, 3), link };
+    })
+    .filter((item) => item.title);
+
 let cache: Promise<Catalog> | null = null;
 
 export const loadCatalog = (force = false): Promise<Catalog> => {
   if (!cache || force) {
-    cache = fetchSheetRanges(['Cursos!A1:AJ', 'Valores UNICIVE!A1:F', 'Combos!A:F', 'Cursos-Presenciais!A2:AB', 'Simulador!A2:C'])
-      .then(([courseRows, uniciveRows, comboRows, presentialRows, simulatorRows]) => {
+    cache = fetchSheetRanges(['Cursos!A1:AJ', 'Valores UNICIVE!A1:F', 'Combos!A:F', 'Cursos-Presenciais!A2:AB', 'Simulador!A2:C', 'Memorandos!A2:D', 'Avisos!A2:D'])
+      .then(([courseRows, uniciveRows, comboRows, presentialRows, simulatorRows, memoRows, noticeRows]) => {
         const courses = buildCourses(courseRows, uniciveRows);
         if (courses.length === 0) throw new Error('A planilha de cursos veio vazia.');
         return {
@@ -300,6 +321,8 @@ export const loadCatalog = (force = false): Promise<Catalog> => {
           combos: buildCombos(comboRows),
           presential: buildPresential(presentialRows),
           simulator: buildSimulator(simulatorRows),
+          memos: buildNotices(memoRows),
+          notices: buildNotices(noticeRows),
           loadedAt: new Date(),
         };
       })

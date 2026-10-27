@@ -68,6 +68,8 @@ interface ScriptResult {
   error?: string;
   images?: number;
   data?: unknown;
+  answer?: string;
+  code?: string;
 }
 
 export const callScript = async (params: Record<string, string>): Promise<ScriptResult> => {
@@ -79,7 +81,11 @@ export const callScript = async (params: Record<string, string>): Promise<Script
   } catch {
     throw new Error('Não foi possível falar com o servidor. Tente novamente.');
   }
-  if (!result || result.ok !== true) throw new Error(result?.error || 'O servidor recusou a operação.');
+  if (!result || result.ok !== true) {
+    const failure = new Error(result?.error || 'O servidor recusou a operação.') as Error & { code?: string };
+    failure.code = result?.code;
+    throw failure;
+  }
   return result;
 };
 
