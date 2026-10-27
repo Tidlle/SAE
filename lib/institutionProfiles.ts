@@ -49,8 +49,8 @@ const ITEQ: InstitutionProfile = {
   ],
   about: [
     'O ITEQ é um instituto educacional de consultoria, captação de alunos, suporte acadêmico e planejamento de formação continuada. Atua como ponte entre o aluno e a educação de qualidade, por meio de instituições parceiras reconhecidas pelo MEC.',
-    'Seu propósito é conectar pessoas que buscam crescimento profissional a faculdades e cursos alinhados às suas metas de carreira. A rede reúne mais de 50 instituições parceiras, entre elas Alpha Channel, ESP e UCESP, que atuam em áreas como saúde, estética, odontologia e educação.',
-    'Cada aluno é atendido de forma individual, com orientação clara e acompanhamento da jornada, da escolha do curso até o decorrer da formação. O SAE é o sistema de apoio da equipe: a Área do Colaborador do site do ITEQ leva a ele.',
+    'Seu propósito é conectar pessoas que buscam crescimento profissional a faculdades e cursos alinhados às suas metas de carreira. A rede reúne mais de 50 instituições parceiras, entre elas Alpha Channel, ESP e UCESP, que atuam em diversas áreas do conhecimento, como educação, saúde e bem-estar, estética, odontologia, negócios e administração, direito, comunicação, computação e tecnologia, engenharia, design, segurança, teologia e meio ambiente.',
+    'Somos especialistas em formação continuada e priorizamos um atendimento humanizado, ágil e personalizado. Cada aluno recebe orientação clara e acompanhamento da jornada, da escolha do curso até o decorrer da formação.',
   ],
   highlights: [
     'Consultoria especializada para escolher o curso e a instituição',
@@ -87,7 +87,7 @@ const ESP: InstitutionProfile = {
   tradition: '',
   location: 'Araçatuba (SP)',
   address: 'Estrada Municipal Caram Rezek, km 135 (lado ímpar), Chácara Araçatuba',
-  modalities: ['Especializada em EAD'],
+  modalities: ['EAD', 'Semipresencial'],
   stats: [
     { value: '+10 mil', label: 'títulos na biblioteca virtual' },
     { value: '10', label: 'áreas de pós-graduação e MBA' },
@@ -96,7 +96,7 @@ const ESP: InstitutionProfile = {
   ],
   about: [
     'A Faculdade do Estado de São Paulo (ESP) atua na formação continuada e tem o ensino a distância como especialidade, com plataforma própria e o aplicativo PED, que permite baixar conteúdos e estudar offline.',
-    'Reúne graduação, pós-graduação e MBA, cursos de extensão, aperfeiçoamento e atualização, além de formação para quem já é graduado (segunda licenciatura e formação pedagógica para bacharéis e tecnólogos). Na pós-graduação e no MBA, o site lista cursos em dez áreas, com destaque para Educação e Saúde e Bem-Estar.',
+    'Reúne graduação, pós-graduação e MBA, cursos de extensão, aperfeiçoamento e atualização, além de graduação com aproveitamento para quem já tem formação superior. Na pós-graduação e no MBA, o site lista cursos em dez áreas do conhecimento, entre elas Educação, Saúde e Bem-Estar, Negócios, Administração e Direito, Ciências Sociais, Comunicação e Informação, Computação e TIC e Engenharia, Produção e Construção, com destaque para Educação e Saúde e Bem-Estar.',
     'A ESP se apresenta como fruto da dedicação de seus mantenedores à educação e diz trabalhar com respeito e transparência com o aluno, atualizando seus métodos conforme as exigências do mercado de trabalho.',
   ],
   highlights: [
@@ -107,7 +107,7 @@ const ESP: InstitutionProfile = {
     'Ingresso por vestibular online, análise de currículo, ENEM ou transferência',
     'Programas de convênios, Polo Parceiro e Parceiro Digital',
   ],
-  courseTypes: ['Graduação (licenciatura e Pedagogia)', 'Segunda licenciatura', 'Formação pedagógica para bacharéis e tecnólogos', 'Pós-graduação e MBA', 'Extensão', 'Aperfeiçoamento', 'Atualização', 'Cursos livres'],
+  courseTypes: ['Graduação (licenciatura e Pedagogia)', 'Graduação com aproveitamento', 'Pós-graduação e MBA', 'Extensão', 'Aperfeiçoamento', 'Atualização', 'Cursos livres'],
   offerings: [
     { title: 'Graduação', items: ['Licenciatura e Pedagogia'] },
     {
@@ -121,7 +121,7 @@ const ESP: InstitutionProfile = {
         'Engenharia, Produção e Construção',
       ],
     },
-    { title: 'Formação para graduados', items: ['Segunda licenciatura', 'Formação pedagógica para bacharéis e tecnólogos'] },
+    { title: 'Graduação com aproveitamento', items: ['Para quem já tem formação superior'] },
     { title: 'Mais opções', items: ['Extensão', 'Aperfeiçoamento', 'Atualização', 'Cursos livres (portal EAD próprio)'] },
   ],
   accreditation: 'Cursos reconhecidos pelo MEC (Portaria 1.013, de 27/11/2020), segundo o site. Cadastro consultável no e-MEC.',
@@ -190,14 +190,14 @@ const UCESP: InstitutionProfile = {
   tradition: 'Desde 2003',
   location: 'Araçatuba (SP)',
   address: 'Estrada Municipal Caram Rezek, km 135 (lado ímpar), Chácara Araçatuba, Araçatuba (SP), CEP 16078-035',
-  modalities: ['Graduação presencial', 'Pós-graduação EAD'],
+  modalities: ['Presencial'],
   stats: [
     { value: '2003', label: 'ano de início da trajetória' },
     { value: '100%', label: 'dos cursos reconhecidos pelo MEC, segundo o site' },
   ],
   about: [
     'A UCESP (Faculdade União Cultural do Estado de São Paulo) apoia a formação de profissionais desde 2003. Tem sede em Araçatuba (SP) e afirma que todos os seus cursos são reconhecidos pelo Ministério da Educação.',
-    'Oferece graduação (bacharelado, tecnólogo e licenciatura), graduação com aproveitamento de disciplinas para quem já tem curso superior e pós-graduação. Pelo site, as graduações são presenciais e as pós-graduações são EAD.',
+    'Oferece graduação (bacharelado, tecnólogo e licenciatura), graduação com aproveitamento de disciplinas para quem já tem curso superior e pós-graduação. Todos os cursos são presenciais; a UCESP não tem cursos EAD.',
     'Entre os cursos em destaque estão Engenharia de Produção, Engenharia Civil, Teologia e Pedagogia, além de especializações em Educação, como Neurociências na Educação Infantil e Educação Especial com ênfase em Altas Habilidades ou Superdotação.',
   ],
   highlights: [
@@ -209,10 +209,10 @@ const UCESP: InstitutionProfile = {
   ],
   courseTypes: ['Graduação (bacharelado, tecnólogo e licenciatura)', 'Graduação com aproveitamento', 'Pós-graduação'],
   offerings: [
-    { title: 'Graduação (presencial)', items: ['Bacharelado', 'Tecnólogo', 'Licenciatura'] },
+    { title: 'Graduação', items: ['Bacharelado', 'Tecnólogo', 'Licenciatura'] },
     { title: 'Graduação com aproveitamento', items: ['Para quem já tem formação superior'] },
     {
-      title: 'Pós-graduação (EAD)',
+      title: 'Pós-graduação',
       items: ['Neurociências na Educação Infantil', 'Educação Especial (Altas Habilidades ou Superdotação)', 'Mediação de Conflitos Escolares', 'Música na Educação Infantil', 'Meio Ambiente e Sustentabilidade'],
     },
   ],

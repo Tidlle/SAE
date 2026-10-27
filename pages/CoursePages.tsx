@@ -778,6 +778,7 @@ export const CoursesInfo: React.FC = () => {
                             <span className="min-w-0 break-words">{highlightMatch((row[nameIndex] || '').toString(), searchTerm)}</span>
                             <span className="flex items-center gap-2 shrink-0">
                               {iesIndex !== -1 && row[iesIndex] && <Badge variant="primary">{row[iesIndex]}</Badge>}
+                              {tipoIndex !== -1 && row[tipoIndex] && <Badge variant="secondary">{row[tipoIndex]}</Badge>}
                               {modalidadeIndex !== -1 && row[modalidadeIndex] && <Badge variant="secondary">{row[modalidadeIndex]}</Badge>}
                             </span>
                           </button>
