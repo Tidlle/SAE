@@ -148,19 +148,27 @@ export const MODALITY_WORDS: Record<string, string> = {
 export const TIPO_WORDS: Record<string, string> = {
   pos: 'pos',
   posgraduacao: 'pos',
+  posgraduacoes: 'pos',
   especializacao: 'pos',
   mba: 'pos',
   graduacao: 'graduacao',
+  graduacoes: 'graduacao',
   licenciatura: 'licenciatura',
   licenciaturas: 'licenciatura',
   bacharelado: 'bacharel',
   bacharelados: 'bacharel',
   tecnologo: 'tecnolog',
+  tecnologos: 'tecnolog',
+  tecnologicos: 'tecnolog',
   tecnologico: 'tecnolog',
   extensao: 'extensao',
+  extensoes: 'extensao',
   capacitacao: 'capacitacao',
+  capacitacoes: 'capacitacao',
   aperfeicoamento: 'aperfeicoamento',
+  aperfeicoamentos: 'aperfeicoamento',
   atualizacao: 'atualizacao',
+  atualizacoes: 'atualizacao',
   livre: 'livre',
   livres: 'livre',
 };
@@ -173,14 +181,14 @@ export interface CourseFilters {
 // Separa do nome do curso as palavras que são filtro (IES, modalidade, tipo).
 export const splitCourseTokens = (tokens: string[]): { name: string[]; filters: CourseFilters } => {
   const filters: CourseFilters = { ies: '', modality: '', tipo: '' };
-  const hasPos = tokens.includes('pos') || tokens.includes('posgraduacao');
+  const hasPos = tokens.includes('pos') || tokens.includes('posgraduacao') || tokens.includes('posgraduacoes');
   const name: string[] = [];
   tokens.forEach((token) => {
     if (IES_WORDS[token]) filters.ies = IES_WORDS[token];
     else if (token === 'channel' && tokens.some((t) => t === 'alpha' || t === 'alfa')) return;
     else if (MODALITY_WORDS[token]) filters.modality = MODALITY_WORDS[token];
-    else if (TIPO_WORDS[token] && !(token === 'graduacao' && hasPos)) filters.tipo = TIPO_WORDS[token];
-    else if (token === 'graduacao' && hasPos) return;
+    else if (TIPO_WORDS[token] && !(TIPO_WORDS[token] === 'graduacao' && hasPos)) filters.tipo = TIPO_WORDS[token];
+    else if (TIPO_WORDS[token] === 'graduacao' && hasPos) return;
     else name.push(token);
   });
   return { name, filters };

@@ -9,7 +9,7 @@ const PAGE = 15;
 const COUNT_WORDS = set('quantos quantas');
 const LIST_NOISE = set(
   'lista listar liste listagem listem quais barato baratos barata baratas economico economicos caro caros cara caras curto curtos curta curtas rapido rapidos ' +
-    'menor maior mais menos ate abaixo acima entre reais r hs horas hora longo longos',
+    'menor maior mais menos ate abaixo acima entre reais r hs horas hora longo longos eixo area areas',
 );
 const EXPLICIT_LIST = set('lista listar liste listagem listem barato baratos barata baratas economico economicos caro caros cara caras curto curtos curta curtas rapido rapidos quantos quantas');
 
@@ -148,18 +148,30 @@ export const answerList = (catalog: Catalog, tokens: string[], all: string[], qu
   const counting = all.some((token) => COUNT_WORDS.has(token));
 
   let pool = catalog.courses.filter((course) => passesFilters(course, filters));
-  if (nameTokens.length > 0) {
-    // o nome do curso ou o eixo ("Educação", "Saúde e Bem-Estar") precisa conter as palavras
-    const withEixo = pool.map((course) => ({ course, words: [...course.words, ...tokenize(course.eixo)] }));
-    pool = rank(withEixo, nameTokens, true).map((entry) => entry.item.course);
-  }
   const notes: string[] = [];
+  if (nameTokens.length > 0) {
+    const eixoOnly = all.includes('eixo') || all.includes('area') || all.includes('areas');
+    const byEixo = (list: Course[]) => rank(list.map((course) => ({ course, words: tokenize(course.eixo) })), nameTokens, true).map((entry) => entry.item.course);
+    if (eixoOnly) {
+      pool = byEixo(pool); // "área/eixo de Saúde": todos os cursos do eixo
+    } else {
+      const byName = rank(pool, nameTokens, true).map((entry) => entry.item);
+      if (byName.length > 0) {
+        pool = byName; // procura primeiro no nome do curso
+        notes.push('Procurei pelo nome do curso. Para ver a área inteira, acrescente "eixo" (por exemplo: "cursos do eixo Saúde").');
+      } else {
+        pool = byEixo(pool);
+        if (pool.length > 0) notes.push(`Nenhum nome de curso tem "${nameTokens.join(' ')}"; mostrei os cursos do eixo correspondente.`);
+      }
+    }
+  }
   const hasPriceFilter = limits.priceMin !== null || limits.priceMax !== null || sort === 'price-asc' || sort === 'price-desc';
   if (hasPriceFilter) {
     const before = pool.length;
     pool = pool.filter((course) => basePrice(course) !== null);
     if (pool.length < before) notes.push(`${before - pool.length} curso(s) sem valor cadastrado ficaram de fora.`);
   }
+  const beforeLimit = pool;
   if (limits.priceMax !== null) pool = pool.filter((course) => (basePrice(course) as number) <= (limits.priceMax as number));
   if (limits.priceMin !== null) pool = pool.filter((course) => (basePrice(course) as number) >= (limits.priceMin as number));
   const needsHours = limits.hoursMin !== null || limits.hoursMax !== null || sort === 'hours-asc' || sort === 'hours-desc';
@@ -186,8 +198,23 @@ export const answerList = (catalog: Catalog, tokens: string[], all: string[], qu
   const scope = parts.length > 0 ? ` (${parts.join(' · ')})` : '';
 
   if (pool.length === 0) {
+    let hint = '';
+    if (beforeLimit.length > 0 && (limits.priceMax !== null || limits.priceMin !== null)) {
+      const cheapest = [...beforeLimit].sort((a, b) => (basePrice(a) as number) - (basePrice(b) as number))[0];
+      const dearest = [...beforeLimit].sort((a, b) => (basePrice(b) as number) - (basePrice(a) as number))[0];
+      hint = ` Sem o limite de valor há ${beforeLimit.length} cursos, de ${money(basePrice(cheapest))} (${shortName(displayName(cheapest.name), 50)}) até ${money(basePrice(dearest))}.`;
+    }
+    // Sem cursos na modalidade pedida: mostra em quais modalidades existem
+    if (!hint && filters.modality) {
+      const others = catalog.courses.filter((course) => passesFilters(course, { ...filters, modality: '' }));
+      if (others.length > 0) {
+        const byModality = new Map<string, number>();
+        others.forEach((course) => byModality.set(course.modalidade || '-', (byModality.get(course.modalidade || '-') ?? 0) + 1));
+        hint = ` Com esses filtros, mas em outra modalidade, há ${others.length} cursos: ${[...byModality.entries()].map(([label, total]) => `${label} (${total})`).join(', ')}.`;
+      }
+    }
     return {
-      reply: textReply('lista:vazia', `Não encontrei cursos com esses filtros${scope}. Tente tirar algum filtro (valor, modalidade ou tipo).`, [{ label: 'O que você sabe responder?', query: 'ajuda' }]),
+      reply: textReply('lista:vazia', `Não encontrei cursos com esses filtros${scope}.${hint || ' Tente tirar algum filtro (valor, modalidade ou tipo).'}`, [{ label: 'O que você sabe responder?', query: 'ajuda' }]),
       ctx,
     };
   }
@@ -217,7 +244,7 @@ export const answerList = (catalog: Catalog, tokens: string[], all: string[], qu
 
 export const COMPARE_WORDS = set('comparar compare comparacao compara diferenca diferencas versus vs');
 
-export const wantsCompare = (all: string[]): boolean => all.some((token) => COMPARE_WORDS.has(token));
+export const wantsCompare = (all: string[]): boolean => all.some((token) => COMPARE_WORDS.has(token)) || all.includes('x');
 
 type Side = { kind: 'course'; course: Course; average: number } | { kind: 'inst'; key: string };
 

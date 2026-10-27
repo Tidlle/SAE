@@ -21,7 +21,7 @@ const PRICE = set(
 );
 const DOCS = set('documento documentos documentacao doc docs requisito requisitos prerequisito prerequisitos ingresso');
 const INFO = set(
-  'carga horaria duracao prazo tempo dura estagio artigo titulacao emec informativo certificado diploma emissao modalidade eixo ementa ficha detalhes detalhe informacoes informacao',
+  'carga horaria duracao prazo tempo dura estagio artigo titulacao emec informativo certificado diploma emissao modalidade ementa ficha detalhes detalhe informacoes informacao',
 );
 const COMBO = set('combo combos pacote pacotes');
 const GREET_WORDS = set('oi ola eae hey bom boa dia tarde noite tudo bem td blz');
@@ -420,6 +420,10 @@ export const answerQuestion = (catalog: Catalog, question: string, ctx: Context 
     const courses = ctx.courseIds.map((id) => catalog.courses[id]).filter(Boolean);
     if (courses.length === 0) return { reply: helpReply(), ctx };
     return { reply: courseReply(courses, [intentChip[1] as Intent], ctx.pay), ctx: { ...ctx, kind: 'course' } };
+  }
+
+  if (/^(mostrar |ver |mostre |me mostre )?(mais|mais cursos|o resto|o restante|continuar|proxima pagina|proximos)$/.test(foldText(query).replace(/[?!.]/g, '').trim()) && ctx.listIds.length > 0) {
+    return answerMore(catalog, ctx);
   }
 
   const parsed = parse(query);

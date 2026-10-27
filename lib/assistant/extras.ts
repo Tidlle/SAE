@@ -21,6 +21,8 @@ const NUCLEO_WORDS: Record<string, string> = {
   licenciaturas: 'licenciatura',
   r2: 'licenciatura',
 };
+// "licenciaturas" e "r2" também são tipos de curso: só valem como setor quando a pergunta já é de contato
+const AMBIGUOUS_NUCLEO = new Set(['licenciaturas', 'r2']);
 const NUCLEO_ABOUT = set('faz fazem atribuicoes atividades responsabilidades funcoes funcao cuida');
 const CLASS_WORDS = set('turma turmas vaga vagas polo polos cronograma cronogramas inicio comeca');
 const POLO_WORDS: Record<string, string> = { itaquera: 'itaquera', santos: 'santos', aracatuba: 'aracatuba' };
@@ -52,7 +54,7 @@ export const wantsClass = (all: string[], hasCourseIntent: boolean): boolean =>
   anyIn(all, CLASS_WORDS) || (all.some((token) => POLO_WORDS[token]) && !hasCourseIntent);
 
 export const wantsContact = (all: string[], hasCourseIntent: boolean): boolean =>
-  anyIn(all, CONTACT_WORDS) || (!hasCourseIntent && all.length <= 5 && all.some((token) => NUCLEO_WORDS[token]));
+  anyIn(all, CONTACT_WORDS) || (!hasCourseIntent && all.length <= 5 && all.some((token) => NUCLEO_WORDS[token] && !AMBIGUOUS_NUCLEO.has(token)));
 
 // ---------------------------------------------------------------- contatos
 
