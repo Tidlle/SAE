@@ -26,7 +26,8 @@ export interface InstitutionProfile {
   stats: { value: string; label: string }[];
   about: string[];
   highlights: string[];
-  offerings: { title: string; items: string[] }[];
+  courseTypes: string[]; // "Tipos de curso" do bloco "O que oferece" da Home (as modalidades vêm de `modalities`)
+  offerings: { title: string; items: string[] }[]; // detalhe por nível; usado pelo Meu Assistente
   accreditation: string;
   site: string;
   logo: string;
@@ -59,6 +60,7 @@ const ITEQ: InstitutionProfile = {
     'Plataforma digital',
     'Três pilares de atuação: acolhimento, clareza e suporte contínuo',
   ],
+  courseTypes: ['Graduação (bacharelado, tecnólogo e licenciatura)', 'Graduação com aproveitamento', 'Pós-graduação', 'Extensão', 'Aperfeiçoamento', 'Capacitação em Estética e em Saúde e Bem-Estar', 'Cursos livres com certificação'],
   offerings: [
     { title: 'Serviços', items: ['Consultoria educacional', 'Captação de alunos', 'Suporte acadêmico', 'Formação continuada', 'Planejamento de carreira'] },
     { title: 'Graduação', items: ['Bacharelado', 'Tecnólogo', 'Licenciatura', 'Graduação com aproveitamento', 'Presencial e semipresencial'] },
@@ -105,6 +107,7 @@ const ESP: InstitutionProfile = {
     'Ingresso por vestibular online, análise de currículo, ENEM ou transferência',
     'Programas de convênios, Polo Parceiro e Parceiro Digital',
   ],
+  courseTypes: ['Graduação (licenciatura e Pedagogia)', 'Segunda licenciatura', 'Formação pedagógica para bacharéis e tecnólogos', 'Pós-graduação e MBA', 'Extensão', 'Aperfeiçoamento', 'Atualização', 'Cursos livres'],
   offerings: [
     { title: 'Graduação', items: ['Licenciatura e Pedagogia'] },
     {
@@ -160,6 +163,7 @@ const ALPHA: InstitutionProfile = {
     'Tecnologia integrada ao projeto educacional',
     'Atuação em várias áreas do conhecimento, com saúde e estética em crescimento',
   ],
+  courseTypes: ['Graduação (bacharelado, tecnólogo e licenciatura)', 'Pós-graduação', 'Capacitação', 'Extensão', 'Cursos de estética'],
   offerings: [
     { title: 'Graduação', items: ['Bacharelado', 'Tecnólogo', 'Licenciatura', 'Design Gráfico em destaque'] },
     { title: 'Pós-graduação', items: ['Educação', 'Saúde', 'Segurança'] },
@@ -203,6 +207,7 @@ const UCESP: InstitutionProfile = {
     'Tecnologia que conecta',
     'Aproveitamento de disciplinas para quem já tem formação superior',
   ],
+  courseTypes: ['Graduação (bacharelado, tecnólogo e licenciatura)', 'Graduação com aproveitamento', 'Pós-graduação'],
   offerings: [
     { title: 'Graduação (presencial)', items: ['Bacharelado', 'Tecnólogo', 'Licenciatura'] },
     { title: 'Graduação com aproveitamento', items: ['Para quem já tem formação superior'] },
@@ -253,6 +258,7 @@ const UNICIVE: InstitutionProfile = {
     'Pós-graduação que pode ser concluída a partir de 4 meses',
     'Avaliação do Estadão: 19 cursos com quatro estrelas',
   ],
+  courseTypes: ['Graduação (bacharelado, licenciatura e tecnólogo)', 'Técnico para tecnólogo', '2ª graduação', 'Pós-graduação', 'Aperfeiçoamento', 'Mestrado EAD internacional', 'Extensão', 'Cursos livres', 'Profissionalizantes', 'Preparatório para o ENCCEJA'],
   offerings: [
     { title: 'Graduação EAD e semipresencial', items: ['Bacharelado', 'Licenciatura', 'Tecnólogo', 'Técnico para tecnólogo', '2ª graduação', '2ª graduação em licenciatura'] },
     { title: 'Graduação presencial', items: ['Graduação', 'Técnico para tecnólogo', '2ª graduação'] },

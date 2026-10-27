@@ -82,11 +82,6 @@ const InstitutionPanel: React.FC<{ item: Institution }> = ({ item }) => {
                 <MapPin size={12} /> {profile.location}
               </Chip>
             )}
-            {(profile?.modalities ?? []).map((modality) => (
-              <Chip key={modality} theme={theme}>
-                {modality}
-              </Chip>
-            ))}
           </div>
         </div>
       </div>
@@ -127,7 +122,7 @@ const InstitutionPanel: React.FC<{ item: Institution }> = ({ item }) => {
         )}
       </div>
 
-      {profile && (profile.highlights.length > 0 || profile.offerings.length > 0) && (
+      {profile && (profile.highlights.length > 0 || profile.courseTypes.length > 0 || profile.modalities.length > 0) && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           {profile.highlights.length > 0 && (
             <div>
@@ -142,22 +137,27 @@ const InstitutionPanel: React.FC<{ item: Institution }> = ({ item }) => {
               </ul>
             </div>
           )}
-          {profile.offerings.length > 0 && (
+          {(profile.courseTypes.length > 0 || profile.modalities.length > 0) && (
             <div>
               <h4 className="font-heading font-bold mb-3">O que oferece</h4>
-              <div className="space-y-3">
-                {profile.offerings.map((group) => (
-                  <div key={group.title}>
-                    <p className="text-sm font-semibold">{group.title}</p>
-                    <div className="flex flex-wrap gap-1.5 mt-1">
-                      {group.items.map((entry) => (
-                        <Chip key={entry} theme={theme}>
-                          {entry}
-                        </Chip>
-                      ))}
+              <div className="space-y-4">
+                {[
+                  { title: 'Tipos de curso', items: profile.courseTypes },
+                  { title: 'Modalidades', items: profile.modalities },
+                ]
+                  .filter((group) => group.items.length > 0)
+                  .map((group) => (
+                    <div key={group.title}>
+                      <p className="text-sm font-semibold">{group.title}</p>
+                      <div className="flex flex-wrap gap-1.5 mt-1">
+                        {group.items.map((entry) => (
+                          <Chip key={entry} theme={theme}>
+                            {entry}
+                          </Chip>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  ))}
               </div>
             </div>
           )}
