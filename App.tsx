@@ -12,7 +12,7 @@ import { AssistentePessoal } from './pages/AssistentePessoal';
 import { Simulador } from './pages/Simulador';
 import { CoursesInfo, CoursesPresencial, Combos, CourseFilter, CourseCreation, CourseCalendar } from './pages/CoursePages';
 import { Quiz, Evolution } from './pages/FeaturePages';
-import { Videos } from './pages/Videos';
+import { VideoTutorials, VideoLessons, VideoInstagram } from './pages/Videos';
 import { Profile } from './pages/Profile';
 import { Analytics } from './pages/Analytics';
 
@@ -54,7 +54,10 @@ const App: React.FC = () => {
         <Route path="/cursos/calendario" element={<ProtectedRoute><CourseCalendar /></ProtectedRoute>} />
         
         {/* Features */}
-        <Route path="/videos" element={<ProtectedRoute><Videos /></ProtectedRoute>} />
+        <Route path="/videos" element={<Navigate to="/videos/tutoriais" replace />} />
+        <Route path="/videos/tutoriais" element={<ProtectedRoute><VideoTutorials /></ProtectedRoute>} />
+        <Route path="/videos/aulas" element={<ProtectedRoute><VideoLessons /></ProtectedRoute>} />
+        <Route path="/videos/instagram" element={<ProtectedRoute><VideoInstagram /></ProtectedRoute>} />
         <Route path="/quiz" element={<ProtectedRoute><CourseQuiz /></ProtectedRoute>} />
         <Route path="/evolucao" element={<ProtectedRoute><Evolution /></ProtectedRoute>} />
       </Routes>

@@ -1,6 +1,7 @@
 import { Catalog, Course } from './catalog';
 import { InstitutionProfile, PRESENTATION_ORDER, profileFor } from '../institutionProfiles';
-import { VIDEOS, Video, watchUrl } from '../videos';
+import { VIDEO_GROUPS, groupByKey, sectionVideos } from '../videoLibrary';
+import { instagramPostUrl, watchUrl } from '../videos';
 import { FORMS_DATA } from '../registrationForms';
 import { EDUCATION_OPTIONS, eligibleTypes } from '../quizRules';
 import { foldText } from '../courses';
@@ -119,8 +120,9 @@ export const answerInstitution = (catalog: Catalog, all: string[], ctx: Context)
   return { reply: { tag: `instituicao:${aspect?.key ?? 'resumo'}`, blocks, chips: institutionChips(name, name), sources }, ctx };
 };
 
-// ---------------------------------------------------------------- vídeos tutoriais
+// ---------------------------------------------------------------- vídeos (tutoriais, aulas e Instagram)
 
+// Palavras que ajudam a achar um tutorial além do título
 const VIDEO_HINTS: Record<string, string> = {
   xAso0Zk77X0: 'primeiro acesso entrar login senha preenchimento dados',
   DyB23r8slj4: 'documentos enviar anexar inserir portal',
@@ -130,7 +132,8 @@ const VIDEO_HINTS: Record<string, string> = {
   QXaZJTPDHC8: 'certificado solicitacao solicitar',
 };
 const VIDEO_WORDS = set('video videos tutorial tutoriais assistir');
-const VIDEO_GENERIC = new Set(['como', 'video', 'videos', 'tutorial', 'tutoriais', 'assistir', 'portal', 'aluno', 'fazer', 'faco', 'ver', 'seu', 'sua', 'minha', 'meu']);
+const INSTAGRAM_WORDS = set('instagram reel reels');
+const VIDEO_GENERIC = new Set(['como', 'video', 'videos', 'tutorial', 'tutoriais', 'assistir', 'portal', 'aluno', 'fazer', 'faco', 'ver', 'seu', 'sua', 'minha', 'meu', 'aula', 'aulas', 'conteudo', 'conteudos', 'plataforma']);
 
 const prefix = (a: string, b: string): number => {
   let n = 0;
@@ -139,46 +142,125 @@ const prefix = (a: string, b: string): number => {
 };
 const similar = (a: string, b: string): boolean => a === b || (Math.min(a.length, b.length) >= 5 && prefix(a, b) >= 5);
 
-const videoTokens = (video: Video): string[] => `${foldText(video.title)} ${VIDEO_HINTS[video.id] ?? ''}`.replace(/[^a-z0-9]+/g, ' ').split(' ').filter(Boolean);
+interface VideoRef {
+  id: string;
+  title: string;
+  group: 'tutoriais' | 'aulas';
+  section: string;
+  sectionId: string;
+  words: string[];
+}
 
-const videoMatches = (all: string[]): { video: Video; count: number }[] => {
-  const content = all.filter((token) => !STOP.has(token) && !VIDEO_GENERIC.has(token) && token.length >= 3);
-  return VIDEOS.map((video) => {
-    const words = videoTokens(video);
-    return { video, count: content.filter((token) => words.some((word) => similar(token, word))).length };
-  })
+const toWords = (text: string): string[] => foldText(text).replace(/[^a-z0-9]+/g, ' ').split(' ').filter(Boolean);
+
+const VIDEO_REFS: VideoRef[] = VIDEO_GROUPS.filter((group) => group.kind === 'youtube').flatMap((group) =>
+  group.sections.flatMap((section) =>
+    sectionVideos(section).map((video) => ({
+      id: video.id,
+      title: video.title,
+      group: group.key as 'tutoriais' | 'aulas',
+      section: section.title,
+      sectionId: section.id,
+      words: toWords(`${video.title} ${section.title} ${VIDEO_HINTS[video.id] ?? ''}`),
+    })),
+  ),
+);
+
+const videoMatches = (all: string[], only?: 'tutoriais' | 'aulas'): { ref: VideoRef; count: number }[] => {
+  const content = all.filter((token) => !STOP.has(token) && !VIDEO_GENERIC.has(token) && !INSTAGRAM_WORDS.has(token) && token.length >= 3);
+  if (content.length === 0) return [];
+  return VIDEO_REFS.filter((ref) => !only || ref.group === only)
+    .map((ref) => ({ ref, count: content.filter((token) => ref.words.some((word) => similar(token, word))).length }))
     .filter((entry) => entry.count > 0)
     .sort((a, b) => b.count - a.count);
 };
 
 export const wantsVideo = (all: string[], hasPriceOrDocs: boolean): boolean => {
-  if (anyIn(all, VIDEO_WORDS)) return true;
-  return !hasPriceOrDocs && all.includes('como') && videoMatches(all).length > 0;
+  if (anyIn(all, VIDEO_WORDS) || anyIn(all, INSTAGRAM_WORDS)) return true;
+  // "como solicitar o certificado?": só tutoriais, para não confundir com perguntas sobre cursos
+  return !hasPriceOrDocs && all.includes('como') && videoMatches(all, 'tutoriais').length > 0;
 };
+
+const pageLink = (path: string, label: string): Block => ({ type: 'links', items: [{ label, href: path }] });
 
 export const answerVideo = (all: string[], ctx: Context): Answer => {
   const sources = ['página Vídeos'];
   const explicit = anyIn(all, VIDEO_WORDS);
-  const matches = videoMatches(all);
-  const top = matches.length > 0 ? matches.filter((entry) => entry.count === matches[0].count).map((entry) => entry.video) : [];
-  const shown = top.length > 0 && top.length < VIDEOS.length ? top : explicit ? VIDEOS : [];
-  if (shown.length === 0) {
-    return { reply: textReply('video:nao-achei', 'Não achei um vídeo para isso. Veja a lista completa de tutoriais do Portal do Aluno.', [], [{ type: 'links', items: [{ label: 'Abrir Vídeos', href: '/videos' }] }]), ctx };
+  const tutorials = groupByKey('tutoriais');
+  const lessons = groupByKey('aulas');
+  const instagram = groupByKey('instagram');
+
+  // Instagram: os links ficam em lib/videoLibrary.ts
+  if (anyIn(all, INSTAGRAM_WORDS)) {
+    const terms = all.filter((token) => !STOP.has(token) && !VIDEO_GENERIC.has(token) && !INSTAGRAM_WORDS.has(token) && token.length >= 3);
+    const posts = instagram.sections.flatMap((section) =>
+      (section.instagram ?? []).map((post) => ({ section: section.title, title: post.title ?? 'Conteúdo do Instagram', url: instagramPostUrl(post.url), words: toWords(`${post.title ?? ''} ${section.title}`) })),
+    ).filter((post) => post.url);
+    const found = terms.length > 0 ? posts.filter((post) => terms.some((term) => post.words.some((word) => similar(term, word)))) : posts;
+    if (found.length === 0) {
+      return { reply: textReply('video:instagram-vazio', posts.length === 0 ? 'Os conteúdos do Instagram ainda não foram publicados no SAE.' : 'Não achei um conteúdo do Instagram com esse tema. Veja todos na página.', [], [pageLink(instagram.path, 'Abrir Conteúdos do Instagram')]), ctx };
+    }
+    return {
+      reply: {
+        tag: 'video:instagram',
+        blocks: [
+          { type: 'text', text: 'Conteúdos do Instagram:' },
+          { type: 'links', items: found.slice(0, 8).map((post) => ({ label: `${post.section}: ${post.title}`, href: post.url })) },
+          pageLink(instagram.path, 'Abrir Conteúdos do Instagram'),
+        ],
+        chips: [],
+        sources,
+      },
+      ctx,
+    };
   }
-  const intro = shown.length === VIDEOS.length ? `Estes são os ${VIDEOS.length} vídeos tutoriais do Portal do Aluno:` : shown.length === 1 ? 'Este vídeo tutorial explica:' : 'Estes vídeos tutoriais podem ajudar:';
-  return {
-    reply: {
-      tag: 'video',
-      blocks: [
-        { type: 'text', text: intro },
-        { type: 'links', items: shown.map((video) => ({ label: video.title, href: watchUrl(video.id) })) },
-        { type: 'links', items: [{ label: 'Abrir a página Vídeos', href: '/videos' }] },
-      ],
-      chips: [],
-      sources,
-    },
-    ctx,
-  };
+
+  const matches = videoMatches(all);
+  const best = matches.length > 0 ? matches[0].count : 0;
+  const top = matches.filter((entry) => entry.count === best).map((entry) => entry.ref);
+
+  if (top.length === 0) {
+    if (!explicit) {
+      return { reply: textReply('video:nao-achei', 'Não achei um vídeo para isso. Veja as páginas de vídeos.', [], [pageLink(tutorials.path, 'Tutoriais da plataforma'), pageLink(lessons.path, 'Conteúdo das aulas')]), ctx };
+    }
+    // "vídeos tutoriais" / "vídeos": mostra o mapa da biblioteca
+    return {
+      reply: {
+        tag: 'video:mapa',
+        blocks: [
+          { type: 'text', text: 'Temos três páginas de vídeos:' },
+          {
+            type: 'list',
+            title: '',
+            items: [
+              `Tutoriais da plataforma: ${tutorials.sections.map((section) => section.title).join(', ')}`,
+              `Conteúdo das aulas: ${lessons.sections.map((section) => section.title).join(', ')}`,
+              'Conteúdos do Instagram: posts e reels por tema',
+            ],
+          },
+          { type: 'links', items: [{ label: 'Tutoriais da plataforma', href: tutorials.path }, { label: 'Conteúdo das aulas', href: lessons.path }, { label: 'Conteúdos do Instagram', href: instagram.path }] },
+        ],
+        chips: [{ label: 'Como solicitar o certificado?', query: 'como solicitar o certificado' }, { label: 'Vídeos de Obstetrícia', query: 'vídeos de obstetrícia' }],
+        sources,
+      },
+      ctx,
+    };
+  }
+
+  const shown = top.slice(0, 6);
+  const group = shown[0].group === 'aulas' ? lessons : tutorials;
+  const sameSection = shown.every((ref) => ref.sectionId === shown[0].sectionId);
+  const intro =
+    group.key === 'tutoriais'
+      ? shown.length === 1 ? 'Este vídeo tutorial explica:' : 'Estes vídeos tutoriais podem ajudar:'
+      : sameSection ? `Vídeos de ${shown[0].section}:` : 'Estes vídeos de aula podem ajudar:';
+  const blocks: Block[] = [
+    { type: 'text', text: intro },
+    { type: 'links', items: shown.map((ref) => ({ label: ref.title, href: watchUrl(ref.id) })) },
+  ];
+  if (top.length > shown.length) blocks.push({ type: 'text', tone: 'muted', text: `Mostrando ${shown.length} de ${top.length}. Veja todos na página.` });
+  blocks.push(pageLink(group.path, `Abrir ${group.navLabel}`));
+  return { reply: { tag: 'video', blocks, chips: [], sources }, ctx };
 };
 
 // ---------------------------------------------------------------- formulários de cadastro

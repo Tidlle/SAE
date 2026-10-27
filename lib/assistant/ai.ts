@@ -1,7 +1,8 @@
 import { callScript } from '../feed';
 import { IES_CONTACTS, NUCLEO_INFO, NUCLEO_OPTIONS } from '../contacts';
 import { InstitutionProfile, PRESENTATION_ORDER, profileFor } from '../institutionProfiles';
-import { VIDEOS, watchUrl } from '../videos';
+import { VIDEO_GROUPS, VIDEOS, sectionVideos } from '../videoLibrary';
+import { watchUrl } from '../videos';
 import { FORMS_DATA } from '../registrationForms';
 import { EDUCATION_OPTIONS, eligibleTypes } from '../quizRules';
 import { formatCurrency } from '../courses';
@@ -74,7 +75,9 @@ const PAGES = [
   ['/contatos', 'Contatos por IES e setores'],
   ['/memorandos', 'Memorandos internos'],
   ['/avisos', 'Avisos (calendários, cronogramas, manuais)'],
-  ['/videos', 'Vídeos tutoriais do Portal do Aluno'],
+  ['/videos/tutoriais', 'Vídeos: tutoriais da plataforma (Portal do Aluno)'],
+  ['/videos/aulas', 'Vídeos: conteúdo das aulas por tema'],
+  ['/videos/instagram', 'Vídeos: conteúdos do Instagram'],
   ['/cadastros', 'Formulários de cadastro'],
   ['/quiz', 'O que posso estudar?'],
   ['/evolucao', 'Evolução funcional (pontos)'],
@@ -169,7 +172,14 @@ export const buildAiContext = (catalog: Catalog, question: string, agenda: Agend
   sections.push(section('Setores e o que cada um faz', nuclei, 4200));
 
   // vídeos, formulários, regras de "o que estudar" e páginas
-  sections.push(section('Vídeos tutoriais do Portal do Aluno', VIDEOS.map((video) => `- ${video.title}: ${watchUrl(video.id)}`), 900));
+  sections.push(section('Vídeos tutoriais do Portal do Aluno', VIDEOS.map((video) => `- ${video.title}: ${watchUrl(video.id)}`), 1400));
+  sections.push(
+    section(
+      'Vídeos de aulas por tema (página /videos/aulas)',
+      VIDEO_GROUPS.filter((group) => group.key === 'aulas').flatMap((group) => group.sections.map((item) => `- ${item.title}: ${sectionVideos(item).length} vídeos`)),
+      700,
+    ),
+  );
   sections.push(section('Formulários de cadastro (página /cadastros)', Object.entries(FORMS_DATA).map(([key, form]) => `- ${form?.title ?? key} (/cadastros?form=${key})`), 600));
   sections.push(
     section('O que cada formação permite cursar', EDUCATION_OPTIONS.map((option) => `- ${option.label}: ${eligibleTypes(option.value).join(', ')}`), 1500),

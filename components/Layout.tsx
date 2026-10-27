@@ -8,7 +8,15 @@ import { can } from '../lib/permissions';
 const NAV_ITEMS = [
   { label: 'Início', path: '/' },
   { label: 'Sobre SAE', path: '/sobre' },
-  { label: 'Vídeos', path: '/videos' },
+  {
+    label: 'Vídeos',
+    path: '#',
+    children: [
+      { label: 'Tutoriais da plataforma', path: '/videos/tutoriais' },
+      { label: 'Conteúdo das aulas', path: '/videos/aulas' },
+      { label: 'Conteúdos do Instagram', path: '/videos/instagram' },
+    ],
+  },
   { 
     label: 'Cursos', 
     path: '#',

@@ -1,158 +1,215 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Check, Copy, ExternalLink, Play, X } from 'lucide-react';
+import React, { useCallback, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { ExternalLink, Instagram, Play, Search, Video as VideoIcon } from 'lucide-react';
 import { Layout } from '../components/Layout';
 import { Breadcrumb, Button, Card, SectionTitle } from '../components/UI';
-import { VIDEOS, Video, watchUrl } from '../lib/videos';
+import { CopyLinkButton, PlayerItem, VideoPlayerModal } from '../components/videos/VideoViewer';
+import { VIDEO_GROUPS, VideoGroup, VideoSection, groupByKey, playlistUrl, sectionVideos } from '../lib/videoLibrary';
+import { embedUrl, instagramEmbedUrl, instagramPostUrl, instagramThumbnailUrl, thumbnailUrl, watchUrl } from '../lib/videos';
+import { foldText } from '../lib/courses';
 
-const thumbnailUrl = (id: string) => `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
-const embedUrl = (id: string) => `https://www.youtube-nocookie.com/embed/${id}?autoplay=1&rel=0`;
+const PREVIEW = 6; // vídeos mostrados por seção antes de "Mostrar todos"
+const SEARCH_FROM = 8; // a busca só aparece quando a página tem mais vídeos que isso
 
-const CopyLinkButton: React.FC<{ id: string; className?: string }> = ({ id, className = '' }) => {
-  const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle');
-  const timer = useRef<ReturnType<typeof setTimeout>>();
+interface Entry {
+  key: string;
+  title: string;
+  thumbnail?: string; // miniatura do YouTube ou capa salva do Instagram
+  external?: boolean; // não abre no player: o botão leva direto ao Instagram
+  item: PlayerItem;
+}
 
-  useEffect(() => () => clearTimeout(timer.current), []);
-
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(watchUrl(id));
-      setState('copied');
-    } catch {
-      setState('failed');
-    }
-    clearTimeout(timer.current);
-    timer.current = setTimeout(() => setState('idle'), 2000);
-  };
-
-  return (
-    <Button variant="secondary" size="sm" onClick={copy} className={`text-xs gap-1.5 ${className}`} aria-live="polite">
-      {state === 'copied' ? <Check size={16} /> : <Copy size={16} />}
-      {state === 'copied' ? 'Link copiado' : state === 'failed' ? 'Não foi possível copiar' : 'Copiar link'}
-    </Button>
-  );
+// Itens de uma seção (YouTube ou Instagram) já no formato do player. Links do Instagram inválidos ficam de fora.
+const entriesOf = (group: VideoGroup, section: VideoSection): Entry[] => {
+  if (group.kind === 'instagram') {
+    // Os posts que não abrem no player (semPlayer) vão para o fim da seção
+    const entries = (section.instagram ?? []).flatMap((post, index) => {
+      const embedSrc = instagramEmbedUrl(post.url);
+      if (!embedSrc) return [];
+      const title = post.title?.trim() || `Conteúdo ${index + 1}`;
+      return [{ key: post.url, title, thumbnail: instagramThumbnailUrl(post.url) || undefined, external: post.semPlayer, item: { title, embedSrc, url: instagramPostUrl(post.url), platform: 'instagram' as const } }];
+    });
+    return [...entries.filter((entry) => !entry.external), ...entries.filter((entry) => entry.external)];
+  }
+  return sectionVideos(section).map((video) => ({
+    key: video.id,
+    title: video.title,
+    thumbnail: thumbnailUrl(video.id),
+    item: { title: video.title, embedSrc: embedUrl(video.id), url: watchUrl(video.id), platform: 'youtube' as const },
+  }));
 };
 
-const VideoPlayerModal: React.FC<{ video: Video | null; onClose: () => void }> = ({ video, onClose }) => {
-  const closeRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    if (!video) return;
-    closeRef.current?.focus();
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      window.removeEventListener('keydown', onKeyDown);
-    };
-  }, [video, onClose]);
-
-  if (!video) return null;
-
-  return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 overflow-y-auto">
-      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="video-modal-title"
-        className="relative z-10 w-full max-w-4xl bg-sae-card border border-sae-border rounded-2xl shadow-2xl p-4 sm:p-6 animate-fadeIn"
+const GroupTabs: React.FC<{ active: VideoGroup['key'] }> = ({ active }) => (
+  <nav aria-label="Tipos de vídeo" className="flex flex-wrap gap-2 mb-8">
+    {VIDEO_GROUPS.map((group) => (
+      <Link
+        key={group.key}
+        to={group.path}
+        aria-current={group.key === active ? 'page' : undefined}
+        className={`px-4 py-2 rounded-full text-sm font-semibold border transition-colors ${
+          group.key === active ? 'bg-sae-accent text-white border-sae-accent' : 'bg-sae-card text-sae-text border-sae-border hover:border-sae-accent'
+        }`}
       >
-        <div className="flex items-start justify-between gap-4 mb-4">
-          <h2 id="video-modal-title" className="text-lg sm:text-xl font-heading font-bold text-sae-text">
-            {video.title}
-          </h2>
-          <button
-            ref={closeRef}
-            type="button"
-            onClick={onClose}
-            aria-label="Fechar vídeo"
-            className="p-1.5 rounded-full text-sae-muted hover:text-sae-text hover:bg-sae-soft transition-colors shrink-0"
-          >
-            <X size={22} />
-          </button>
-        </div>
+        {group.navLabel}
+      </Link>
+    ))}
+  </nav>
+);
 
-        <div className="aspect-video w-full overflow-hidden rounded-lg bg-black">
-          <iframe
-            src={embedUrl(video.id)}
-            title={video.title}
-            className="w-full h-full"
-            allow="accelerometer; autoplay; encrypted-media; picture-in-picture; fullscreen"
-            allowFullScreen
-            referrerPolicy="strict-origin-when-cross-origin"
-          />
-        </div>
+const VideoCard: React.FC<{ entry: Entry; onPlay: (item: PlayerItem) => void }> = ({ entry, onPlay }) => {
+  const instagram = entry.item.platform === 'instagram';
+  const open = () => {
+    if (entry.external) window.open(entry.item.url, '_blank', 'noopener,noreferrer');
+    else onPlay(entry.item);
+  };
+  return (
+    <Card className="group flex flex-col overflow-hidden hover:border-sae-accent/50 transition-all duration-300">
+      <button
+        type="button"
+        onClick={open}
+        aria-label={`${entry.external ? 'Abrir no Instagram' : 'Assistir'}: ${entry.title}`}
+        className="relative block w-full aspect-video overflow-hidden bg-sae-soft shrink-0"
+      >
+        {entry.thumbnail ? (
+          <img src={entry.thumbnail} alt="" loading="lazy" className={`w-full h-full object-cover ${instagram ? 'object-[50%_30%]' : ''} transform group-hover:scale-105 transition-transform duration-500`} />
+        ) : (
+          <span className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-sae-accent/25 via-sae-accentSoft to-sae-accent/10 text-sae-accentText">
+            <Instagram size={44} />
+          </span>
+        )}
+        <span className="absolute inset-0 bg-black/30 group-hover:bg-black/10 transition-colors flex items-center justify-center">
+          <span className="w-12 h-12 bg-sae-accent/90 rounded-full flex items-center justify-center text-white shadow-lg transform group-hover:scale-110 transition-transform">
+            <Play size={20} fill="currentColor" className="ml-1" />
+          </span>
+        </span>
+      </button>
 
-        <div className="flex flex-wrap items-center gap-3 mt-4">
-          <CopyLinkButton id={video.id} />
-          <a
-            href={watchUrl(video.id)}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 text-sm font-semibold text-sae-accentText hover:text-sae-accentHover"
-          >
-            <ExternalLink size={16} /> Abrir no YouTube
-          </a>
+      <div className="p-5 flex flex-col flex-1">
+        <h3 className="font-bold text-sae-text mb-4 leading-snug break-words">{entry.title}</h3>
+        <div className="flex gap-2 mt-auto">
+          <Button size="sm" className="flex-1 text-xs" onClick={open}>
+            {entry.external ? <ExternalLink size={14} className="mr-1.5" /> : <Play size={14} fill="currentColor" className="mr-1.5" />}
+            {entry.external ? 'Abrir no Instagram' : instagram ? 'Ver aqui' : 'Assistir agora'}
+          </Button>
+          <CopyLinkButton url={entry.item.url} />
         </div>
       </div>
-    </div>
+    </Card>
   );
 };
 
-export const Videos: React.FC = () => {
-  const [playing, setPlaying] = useState<Video | null>(null);
+// Página de uma das três bibliotecas: cada seção é um tema.
+const VideoLibraryPage: React.FC<{ groupKey: VideoGroup['key'] }> = ({ groupKey }) => {
+  const group = groupByKey(groupKey);
+  const [playing, setPlaying] = useState<PlayerItem | null>(null);
+  const [search, setSearch] = useState('');
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const closePlayer = useCallback(() => setPlaying(null), []);
+
+  const sections = useMemo(() => group.sections.map((section) => ({ section, entries: entriesOf(group, section) })), [group]);
+  const total = sections.reduce((sum, item) => sum + item.entries.length, 0);
+  const term = foldText(search).trim();
+  const visible = sections
+    .map((item) => ({ ...item, shown: term ? item.entries.filter((entry) => foldText(`${entry.title} ${item.section.title}`).includes(term)) : item.entries }))
+    .filter((item) => item.shown.length > 0 || (!term && item.entries.length === 0));
+
+  const jumpTo = (id: string) => document.getElementById(`secao-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
   return (
     <Layout>
       <div className="container mx-auto px-4 lg:px-8 py-12">
-        <Breadcrumb items={[{ label: 'Vídeos' }]} />
-        <SectionTitle
-          title="Vídeos Tutoriais"
-          subtitle="Tutoriais do Portal do Aluno. Assista aqui mesmo e envie o link ao aluno para orientá-lo."
-        />
+        <Breadcrumb items={[{ label: 'Vídeos', path: '#' }, { label: group.navLabel }]} />
+        <SectionTitle title={group.title} />
+        <GroupTabs active={group.key} />
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-          {VIDEOS.map((video) => (
-            <Card key={video.id} className="group flex flex-col overflow-hidden hover:border-sae-accent/50 transition-all duration-300">
-              <button
-                type="button"
-                onClick={() => setPlaying(video)}
-                aria-label={`Assistir: ${video.title}`}
-                className="relative block w-full aspect-video overflow-hidden bg-sae-soft shrink-0"
-              >
-                <img
-                  src={thumbnailUrl(video.id)}
-                  alt=""
-                  loading="lazy"
-                  className="w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-500"
-                />
-                <span className="absolute inset-0 bg-black/30 group-hover:bg-black/10 transition-colors flex items-center justify-center">
-                  <span className="w-12 h-12 bg-sae-accent/90 rounded-full flex items-center justify-center text-white shadow-lg transform group-hover:scale-110 transition-transform">
-                    <Play size={20} fill="currentColor" className="ml-1" />
-                  </span>
-                </span>
-              </button>
-
-              <div className="p-5 flex flex-col flex-1">
-                <h3 className="font-bold text-sae-text mb-4 leading-snug">{video.title}</h3>
-                <div className="flex gap-2 mt-auto">
-                  <Button size="sm" className="flex-1 text-xs" onClick={() => setPlaying(video)}>
-                    <Play size={14} fill="currentColor" className="mr-1.5" /> Assistir agora
-                  </Button>
-                  <CopyLinkButton id={video.id} />
-                </div>
+        {sections.length === 0 ? (
+          <Card className="p-10 text-center">
+            <VideoIcon size={40} className="mx-auto mb-3 text-sae-muted opacity-60" />
+            <h2 className="text-lg font-heading font-bold text-sae-text">Em breve</h2>
+            <p className="text-sae-muted mt-1 max-w-md mx-auto">Os conteúdos desta página ainda estão sendo organizados por tema. Volte em breve.</p>
+          </Card>
+        ) : (
+          <>
+            <div className="flex flex-wrap items-center gap-3 mb-8">
+              <div className="flex flex-wrap gap-2 flex-1 min-w-0" aria-label="Ir para o tema">
+                {sections.map(({ section, entries }) => (
+                  <button
+                    key={section.id}
+                    type="button"
+                    onClick={() => jumpTo(section.id)}
+                    className="px-3 py-1.5 rounded-full text-xs font-semibold border border-sae-border bg-sae-card text-sae-text hover:border-sae-accent hover:text-sae-accentText transition-colors"
+                  >
+                    {section.title} <span className="text-sae-muted font-normal">({entries.length})</span>
+                  </button>
+                ))}
               </div>
-            </Card>
-          ))}
-        </div>
+              {total > SEARCH_FROM && (
+                <div className="relative w-full sm:w-64">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-sae-muted" />
+                  <input
+                    value={search}
+                    onChange={(event) => setSearch(event.target.value)}
+                    placeholder="Buscar vídeo"
+                    aria-label="Buscar vídeo"
+                    className="w-full bg-sae-darker border border-sae-border rounded-lg pl-9 pr-3 py-2 text-sm text-sae-text placeholder:text-sae-muted focus:border-sae-accent outline-none"
+                  />
+                </div>
+              )}
+            </div>
+
+            {visible.length === 0 && <p className="text-sae-muted py-8 text-center">Nenhum vídeo encontrado para essa busca.</p>}
+
+            <div className="space-y-14">
+              {visible.map(({ section, entries, shown }) => {
+                const open = Boolean(term) || expanded[section.id];
+                const list = open ? shown : shown.slice(0, PREVIEW);
+                return (
+                  <section key={section.id} id={`secao-${section.id}`} aria-labelledby={`titulo-${section.id}`} className="scroll-mt-28">
+                    <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-1 mb-5 border-b border-sae-border pb-3">
+                      <div className="min-w-0">
+                        <h2 id={`titulo-${section.id}`} className="text-2xl font-heading font-bold text-sae-text">
+                          {section.title} <span className="text-base font-semibold text-sae-muted">({entries.length})</span>
+                        </h2>
+                        {section.description && <p className="text-sm text-sae-muted mt-1">{section.description}</p>}
+                      </div>
+                      {section.playlistId && (
+                        <a href={playlistUrl(section.playlistId)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-sm font-semibold text-sae-accentText hover:text-sae-accentHover">
+                          <ExternalLink size={15} /> Ver playlist completa no YouTube
+                        </a>
+                      )}
+                    </div>
+
+                    {entries.length === 0 ? (
+                      <p className="text-sm text-sae-muted">Os vídeos deste tema estão na playlist do YouTube.</p>
+                    ) : (
+                      <>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                          {list.map((entry) => (
+                            <VideoCard key={entry.key} entry={entry} onPlay={setPlaying} />
+                          ))}
+                        </div>
+                        {!term && shown.length > PREVIEW && (
+                          <div className="mt-6 text-center">
+                            <Button variant="outline" size="sm" onClick={() => setExpanded((current) => ({ ...current, [section.id]: !current[section.id] }))}>
+                              {open ? 'Mostrar menos' : `Mostrar todos (${shown.length})`}
+                            </Button>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </section>
+                );
+              })}
+            </div>
+          </>
+        )}
       </div>
 
-      <VideoPlayerModal video={playing} onClose={closePlayer} />
+      <VideoPlayerModal item={playing} onClose={closePlayer} />
     </Layout>
   );
 };
+
+export const VideoTutorials: React.FC = () => <VideoLibraryPage groupKey="tutoriais" />;
+export const VideoLessons: React.FC = () => <VideoLibraryPage groupKey="aulas" />;
+export const VideoInstagram: React.FC = () => <VideoLibraryPage groupKey="instagram" />;

@@ -64,7 +64,7 @@ const FEATURES = [
     icon: PlayCircle,
     title: 'Treinamento e evolução',
     text: 'Vídeos tutoriais, guia de estudos e a calculadora de evolução funcional, para aprender a usar o sistema e acompanhar o crescimento na carreira.',
-    path: '/videos',
+    path: '/videos/tutoriais',
     action: 'Ver tutoriais',
   },
   {
@@ -182,7 +182,7 @@ export const About: React.FC = () => {
               </p>
               <p className="text-sm text-sae-muted mt-3">
                 Dúvidas sobre como usar o sistema? Veja os{' '}
-                <Link to="/videos" className="font-semibold text-sae-accentText hover:text-sae-accentHover">
+                <Link to="/videos/tutoriais" className="font-semibold text-sae-accentText hover:text-sae-accentHover">
                   vídeos tutoriais
                 </Link>{' '}
                 ou fale com a{' '}

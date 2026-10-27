@@ -551,7 +551,7 @@ export const replyToPlain = (reply: Reply): string => {
     if (block.type === 'course') lines.push('', `*${block.title}*`, block.meta.join(' · '));
     if (block.type === 'facts') block.items.forEach(([label, value]) => lines.push(`${label}: ${value}`));
     if (block.type === 'list') {
-      lines.push(`${block.title}:`);
+      if (block.title) lines.push(`${block.title}:`);
       block.items.forEach((item) => lines.push(`- ${item}`));
     }
     if (block.type === 'table') {
