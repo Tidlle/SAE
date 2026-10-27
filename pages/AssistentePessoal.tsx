@@ -5,6 +5,7 @@ import { CopyButton } from '../components/CopyButton';
 import { ReplyView } from '../components/assistant/ReplyView';
 import { Send, Bot, User, Sparkles, Trash2, AlertCircle, RefreshCw } from 'lucide-react';
 import { Catalog, loadCatalog } from '../lib/assistant/catalog';
+import { Agenda, loadAgenda } from '../lib/assistant/calendar';
 import { Chip, Context, EMPTY_CONTEXT, HELP_CHIPS, Reply, answerQuestion, replyToPlain } from '../lib/assistant/engine';
 import { trackAction } from '../lib/tracker';
 
@@ -13,6 +14,8 @@ interface Message {
   role: 'user' | 'assistant';
   text?: string;
   reply?: Reply;
+  loading?: boolean; // esperando dados (calendário de aulas)
+  loadedAt?: Date; // quando os dados da resposta foram lidos
   timestamp: Date;
 }
 
@@ -25,6 +28,7 @@ export const AssistentePessoal: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [ctx, setCtx] = useState<Context>(EMPTY_CONTEXT);
+  const [agenda, setAgenda] = useState<Agenda | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -57,16 +61,35 @@ export const AssistentePessoal: React.FC = () => {
     const trimmed = query.trim();
     if (!trimmed || !catalog) return;
     const now = Date.now();
-    const answer = answerQuestion(catalog, trimmed, ctx);
-    setCtx(answer.ctx);
-    trackAction(`Assistente: ${answer.reply.tag}`); // só o tipo da resposta, nunca o texto da pergunta
-    setMessages((current) => [
-      ...current,
-      { id: `${now}-u`, role: 'user', text: shown.trim(), timestamp: new Date(now) },
-      { id: `${now}-a`, role: 'assistant', reply: answer.reply, timestamp: new Date(now) },
-    ]);
+    const userMessage: Message = { id: `${now}-u`, role: 'user', text: shown.trim(), timestamp: new Date(now) };
+    const answer = answerQuestion(catalog, trimmed, ctx, agenda);
     setInput('');
     inputRef.current?.focus();
+
+    // O calendário de aulas é lido do Google Agenda sob demanda: mostra "consultando" e responde quando chegar
+    if (answer.needs === 'agenda') {
+      const pendingId = `${now}-a`;
+      setMessages((current) => [...current, userMessage, { id: pendingId, role: 'assistant', loading: true, timestamp: new Date(now) }]);
+      loadAgenda()
+        .then((loaded) => {
+          setAgenda(loaded);
+          const done = answerQuestion(catalog, trimmed, ctx, loaded);
+          setCtx(done.ctx);
+          trackAction(`Assistente: ${done.reply.tag}`);
+          setMessages((current) => current.map((message) => (message.id === pendingId ? { ...message, loading: false, reply: done.reply, loadedAt: loaded.loadedAt } : message)));
+        })
+        .catch(() => {
+          const failed: Reply = { tag: 'agenda:erro', blocks: [{ type: 'text', tone: 'warn', text: 'Não foi possível ler a agenda de aulas agora. Tente de novo em instantes ou abra o Calendário de Aulas.' }, { type: 'links', items: [{ label: 'Abrir Calendário de Aulas', href: '/cursos/calendario' }] }], chips: [], sources: [] };
+          trackAction(`Assistente: ${failed.tag}`);
+          setMessages((current) => current.map((message) => (message.id === pendingId ? { ...message, loading: false, reply: failed } : message)));
+        });
+      return;
+    }
+
+    setCtx(answer.ctx);
+    trackAction(`Assistente: ${answer.reply.tag}`); // só o tipo da resposta, nunca o texto da pergunta
+    const loadedAt = answer.reply.tag.startsWith('agenda') && agenda ? agenda.loadedAt : catalog.loadedAt;
+    setMessages((current) => [...current, userMessage, { id: `${now}-a`, role: 'assistant', reply: answer.reply, loadedAt, timestamp: new Date(now) }]);
   };
 
   const handleSend = () => send(input);
@@ -146,8 +169,10 @@ export const AssistentePessoal: React.FC = () => {
                 <h3 className="text-2xl font-bold text-sae-text mb-2">Olá, {userName}!</h3>
                 <p className="text-sae-muted max-w-md mb-8">
                   Pergunte sobre <strong className="text-sae-text">valores</strong>, <strong className="text-sae-text">combos</strong>,{' '}
-                  <strong className="text-sae-text">documentos</strong>, <strong className="text-sae-text">turmas presenciais</strong>, <strong className="text-sae-text">aproveitamento de estudos</strong> e{' '}
-                  <strong className="text-sae-text">contatos</strong>. Eu respondo direto da planilha e mostro a fonte.
+                  <strong className="text-sae-text">documentos</strong>, <strong className="text-sae-text">listas e comparações</strong>,{' '}
+                  <strong className="text-sae-text">aulas e turmas</strong>, <strong className="text-sae-text">instituições</strong>,{' '}
+                  <strong className="text-sae-text">vídeos</strong>, <strong className="text-sae-text">cadastros</strong> e{' '}
+                  <strong className="text-sae-text">contatos</strong>. Eu respondo direto da planilha e das páginas do SAE e mostro a fonte.
                 </p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-xl w-full">
                   {HELP_CHIPS.map((suggestion) => (
@@ -182,11 +207,15 @@ export const AssistentePessoal: React.FC = () => {
                         : 'bg-sae-card/80 border border-sae-border rounded-tl-sm'
                     }`}
                   >
-                    {message.role === 'assistant' && message.reply ? (
+                    {message.role === 'assistant' && message.loading ? (
+                      <div className="flex items-center gap-2 text-sm text-sae-muted">
+                        <RefreshCw size={14} className="animate-spin" /> Consultando a agenda de aulas...
+                      </div>
+                    ) : message.role === 'assistant' && message.reply ? (
                       <>
                         <ReplyView
                           reply={message.reply}
-                          loadedAt={catalog?.loadedAt ?? null}
+                          loadedAt={message.loadedAt ?? catalog?.loadedAt ?? null}
                           onPick={handlePick}
                           disabled={!ready}
                           showChips={message.id === lastAssistantId}

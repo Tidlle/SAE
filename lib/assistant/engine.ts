@@ -38,6 +38,11 @@ interface Topic {
 }
 const TOPICS: Topic[] = [
   {
+    words: set('academico academicos'),
+    text: 'O calendário acadêmico de cada IES (por exemplo, "Calendário ESP 2026") é publicado nos Avisos, com o link do arquivo.',
+    link: { label: 'Abrir Avisos', href: '/avisos' },
+  },
+  {
     words: set('memorando memorandos norma normas regra regras portaria circular'),
     text: 'Os memorandos e normas ainda não estão no assistente. Eles estão na página Memorandos, com o link do documento completo.',
     link: { label: 'Abrir Memorandos', href: '/memorandos' },

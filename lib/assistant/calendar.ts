@@ -75,7 +75,7 @@ const field = (text: string, label: RegExp, stop: RegExp): string => {
   const match = label.exec(text);
   if (!match) return '';
   const rest = text.slice(match.index + match[0].length).split('\n')[0];
-  return rest.split(stop)[0].replace(/[.;,\s]+$/, '').trim();
+  return rest.split(stop)[0].replace(/^[\s\-–:·.]+|[\s\-–:·.,;/]+$/g, '').trim();
 };
 
 export const parseEvent = (raw: RawEvent): AgendaEvent | null => {
@@ -268,11 +268,12 @@ export const answerAgenda = (agenda: Agenda, all: string[], question: string, ct
   const scope = [polo ? `em ${POLO_LABEL[polo]}` : '', nameTokens.length > 0 ? `de "${nameTokens.join(' ')}"` : ''].filter(Boolean).join(' ');
 
   if (events.length === 0) {
+    const past = window.explicit && window.to <= startOfDay(now) ? ' Essa data já passou.' : '';
     const later = window.explicit ? '' : ' nos próximos meses';
     return {
       reply: textReply(
         'agenda:vazio',
-        `Não há aulas na agenda${scope ? ' ' + scope : ''}${window.explicit ? ` (${window.label})` : later}. A agenda é preenchida pela coordenação e pode ainda não ter essa data.`,
+        `Não há aulas na agenda${scope ? ' ' + scope : ''}${window.explicit ? ` (${window.label})` : later}.${past || ' A agenda é preenchida pela coordenação e pode ainda não ter essa data.'}`,
         AGENDA_CHIPS,
         [AGENDA_LINK],
       ),
@@ -281,7 +282,9 @@ export const answerAgenda = (agenda: Agenda, all: string[], question: string, ct
   }
 
   const shown = events.slice(0, window.explicit ? 15 : 8);
-  const heading = window.explicit ? `Aulas ${window.label === 'hoje' || window.label === 'amanhã' ? window.label : 'em ' + window.label}${scope ? ' ' + scope : ''}:` : `Próximas aulas${scope ? ' ' + scope : ''}:`;
+  const WHEN: Record<string, string> = { hoje: 'de hoje', 'amanhã': 'de amanhã', 'esta semana': 'desta semana', 'próxima semana': 'da próxima semana' };
+  const when = WHEN[window.label] ?? `em ${window.label}`;
+  const heading = window.explicit ? `Aulas ${when}${scope ? ' ' + scope : ''}:` : `Próximas aulas${scope ? ' ' + scope : ''}:`;
   const blocks: Block[] = [{ type: 'text', text: heading }];
   if (shown.length <= 3) {
     shown.forEach((event) => blocks.push(...eventBlocks(event)));

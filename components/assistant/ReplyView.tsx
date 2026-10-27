@@ -135,7 +135,7 @@ export const ReplyView: React.FC<ReplyViewProps> = ({ reply, loadedAt, onPick, d
     {reply.sources.length > 0 && (
       <p className="text-[11px] text-sae-muted">
         Fonte: {reply.sources.join(' e ')}
-        {loadedAt ? `, lida às ${loadedAt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}` : ''}.
+        {loadedAt && reply.sources.some((source) => source.startsWith('aba') || source.startsWith('Calendário')) ? `, lida às ${loadedAt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}` : ''}.
       </p>
     )}
 
