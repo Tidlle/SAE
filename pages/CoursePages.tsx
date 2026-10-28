@@ -6,10 +6,11 @@ import { Search, Filter, Calendar, MapPin, Clock, CheckCircle, SlidersHorizontal
 import { Chatbot } from '../components/Chatbot';
 import { CopyButton } from '../components/CopyButton';
 import { fetchSheet } from '../lib/sheets';
-import { FACET_GROUPS, Facet, FacetGroup, buildFacet, facetKey, findColumn, formatCurrency, normalizeText, parseCurrency, safeHttpUrl, splitList } from '../lib/courses';
+import { FACET_GROUPS, Facet, FacetGroup, areaLabelOf, buildFacet, facetKey, findColumn, formatCurrency, normalizeText, parseCurrency, safeHttpUrl, splitList } from '../lib/courses';
 import { CoursesOverview } from '../components/CoursesOverview';
 import { RecentCourse, clearRecents, loadRecents, saveRecent } from '../lib/recentCourses';
 import { highlightMatch } from '../lib/text';
+import { AgendaEvent, loadAgenda } from '../lib/assistant/calendar';
 
 const MAX_SUGGESTIONS = 50;
 
@@ -26,7 +27,7 @@ export const CoursesInfo: React.FC = () => {
   const [selectedParcels, setSelectedParcels] = React.useState(1);
   const [uniciveData, setUniciveData] = React.useState<Record<string, string[]>>({});
   const [loadError, setLoadError] = React.useState('');
-  const [filters, setFilters] = React.useState<Record<FacetGroup, string>>({ ies: '', tipo: '', modalidade: '' });
+  const [filters, setFilters] = React.useState<Record<FacetGroup, string>>({ ies: '', area: '', tipo: '', modalidade: '' });
   const [recents, setRecents] = React.useState<RecentCourse[]>(loadRecents);
 
   // Constants
@@ -103,6 +104,7 @@ export const CoursesInfo: React.FC = () => {
   // Colunas localizadas pelo título, para não depender da posição na planilha
   const nameIndex = React.useMemo(() => Math.max(0, findColumn(headers, /^Nome d/i)), [headers]);
   const iesIndex = React.useMemo(() => findColumn(headers, /^IES/i), [headers]);
+  const eixoIndex = React.useMemo(() => findColumn(headers, /^Eixo/i), [headers]);
   const tipoIndex = React.useMemo(() => findColumn(headers, /^Tipo/i), [headers]);
   const modalidadeIndex = React.useMemo(() => findColumn(headers, /^Modalidade/i), [headers]);
 
@@ -110,13 +112,20 @@ export const CoursesInfo: React.FC = () => {
 
   // Filtros por instituição, tipo e modalidade (mesmo valor com grafias diferentes conta como um só)
   const facetIndex = React.useCallback(
-    (group: FacetGroup) => (group === 'ies' ? iesIndex : group === 'tipo' ? tipoIndex : modalidadeIndex),
-    [iesIndex, tipoIndex, modalidadeIndex],
+    (group: FacetGroup) => (group === 'ies' ? iesIndex : group === 'area' ? eixoIndex : group === 'tipo' ? tipoIndex : modalidadeIndex),
+    [iesIndex, eixoIndex, tipoIndex, modalidadeIndex],
   );
+
+  // A área junta os eixos da planilha que são o mesmo assunto ("Saúde" e "Saúde e Bem-Estar")
+  const facetTransform = React.useCallback((group: FacetGroup) => (group === 'area' ? areaLabelOf : undefined), []);
 
   const rowPasses = React.useCallback(
     (row: any[], skip?: FacetGroup) =>
-      FACET_GROUPS.every((group) => group === skip || !filters[group] || facetKey(row[facetIndex(group)]) === filters[group]),
+      FACET_GROUPS.every((group) => {
+        if (group === skip || !filters[group]) return true;
+        const cell = row[facetIndex(group)];
+        return facetKey(group === 'area' ? areaLabelOf(cell) : cell) === filters[group];
+      }),
     [filters, facetIndex],
   );
 
@@ -125,17 +134,18 @@ export const CoursesInfo: React.FC = () => {
   const allFacets = React.useMemo(
     () => ({
       ies: buildFacet(data, iesIndex),
+      area: buildFacet(data, eixoIndex, areaLabelOf),
       tipo: buildFacet(data, tipoIndex),
       modalidade: buildFacet(data, modalidadeIndex),
     }),
-    [data, iesIndex, tipoIndex, modalidadeIndex],
+    [data, iesIndex, eixoIndex, tipoIndex, modalidadeIndex],
   );
 
   // Contagens de cada grupo respeitando os filtros dos outros grupos
   const facets = React.useMemo(() => {
     const result = {} as Record<FacetGroup, Facet[]>;
     FACET_GROUPS.forEach((group) => {
-      const built = buildFacet(data.filter((row) => rowPasses(row, group)), facetIndex(group));
+      const built = buildFacet(data.filter((row) => rowPasses(row, group)), facetIndex(group), facetTransform(group));
       const selected = filters[group];
       if (selected && !built.some((facet) => facet.key === selected)) {
         const known = allFacets[group].find((facet) => facet.key === selected);
@@ -144,7 +154,7 @@ export const CoursesInfo: React.FC = () => {
       result[group] = built;
     });
     return result;
-  }, [data, filters, allFacets, rowPasses, facetIndex]);
+  }, [data, filters, allFacets, rowPasses, facetIndex, facetTransform]);
 
   const filteredRows = React.useMemo(() => (hasFilters ? data.filter((row) => rowPasses(row)) : []), [data, hasFilters, rowPasses]);
 
@@ -188,7 +198,7 @@ export const CoursesInfo: React.FC = () => {
   };
 
   const handleFilterChange = (group: FacetGroup, key: string) => setFilters((current) => ({ ...current, [group]: key }));
-  const clearFilters = () => setFilters({ ies: '', tipo: '', modalidade: '' });
+  const clearFilters = () => setFilters({ ies: '', area: '', tipo: '', modalidade: '' });
 
   // Abre direto o curso pedido por outra página (ex.: lista de recentes do perfil): /cursos/info?curso=NOME&ies=IES
   const [searchParams, setSearchParams] = useSearchParams();
@@ -1709,23 +1719,128 @@ export const CourseCreation: React.FC = () => {
 };
 
 // --- COURSE CALENDAR ---
+const monthKey = (date: Date): string => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+const monthLabel = (key: string): string => {
+    const [year, month] = key.split('-').map(Number);
+    const label = new Date(year, month - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+    return label.charAt(0).toUpperCase() + label.slice(1);
+};
+const dayHeading = (date: Date): string => {
+    const label = date.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: '2-digit' });
+    return label.charAt(0).toUpperCase() + label.slice(1);
+};
+const timeRange = (event: AgendaEvent): string => {
+    if (event.allDay) return 'Dia inteiro';
+    const format = (date: Date) => date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    return event.endTime ? `${format(event.start)} às ${format(event.endTime)}` : format(event.start);
+};
+
+// Lista das aulas por dia: o calendário do Google esconde parte delas em "Mais N" e corta os títulos
+const AgendaList: React.FC = () => {
+    const [events, setEvents] = React.useState<AgendaEvent[] | null>(null);
+    const [failed, setFailed] = React.useState(false);
+    const [month, setMonth] = React.useState('');
+
+    React.useEffect(() => {
+        let active = true;
+        loadAgenda()
+            .then((agenda) => {
+                if (!active) return;
+                setEvents(agenda.events);
+                setMonth(agenda.events[0] ? monthKey(agenda.events[0].start) : '');
+            })
+            .catch(() => active && setFailed(true));
+        return () => {
+            active = false;
+        };
+    }, []);
+
+    if (failed) return <p className="text-sm text-sae-muted text-center">Não foi possível carregar a lista de aulas agora. Use o calendário acima.</p>;
+    if (!events) return <p className="text-sm text-sae-muted text-center">Carregando a lista de aulas...</p>;
+    if (events.length === 0) return <p className="text-sm text-sae-muted text-center">Nenhuma aula cadastrada na agenda para os próximos meses.</p>;
+
+    const months: string[] = Array.from(new Set(events.map((event) => monthKey(event.start))));
+    const days = new Map<string, AgendaEvent[]>();
+    events
+        .filter((event) => monthKey(event.start) === month)
+        .forEach((event) => {
+            const key = event.start.toDateString();
+            days.set(key, [...(days.get(key) ?? []), event]);
+        });
+
+    return (
+        <div>
+            <div className="flex flex-wrap gap-2 mb-6" aria-label="Mês">
+                {months.map((key) => (
+                    <button
+                        key={key}
+                        type="button"
+                        onClick={() => setMonth(key)}
+                        aria-pressed={key === month}
+                        className={`px-4 py-1.5 rounded-full text-sm font-semibold border transition-colors ${
+                            key === month ? 'bg-sae-accent text-white border-sae-accent' : 'bg-sae-card text-sae-text border-sae-border hover:border-sae-accent'
+                        }`}
+                    >
+                        {monthLabel(key)}
+                    </button>
+                ))}
+            </div>
+
+            <div className="space-y-6">
+                {[...days.values()].map((list) => (
+                    <section key={list[0].start.toDateString()} aria-label={dayHeading(list[0].start)}>
+                        <h3 className="text-sm font-bold text-sae-accentText uppercase tracking-wide mb-2">
+                            {dayHeading(list[0].start)} <span className="text-sae-muted font-normal normal-case">({list.length} {list.length === 1 ? 'aula' : 'aulas'})</span>
+                        </h3>
+                        <ul className="space-y-2">
+                            {list.map((event) => (
+                                <li key={event.id} className="bg-sae-card border border-sae-border rounded-lg px-4 py-3">
+                                    <p className="font-semibold text-sae-text leading-snug break-words">{event.title}</p>
+                                    <p className="text-xs text-sae-muted mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
+                                        <span className="inline-flex items-center gap-1"><Clock size={12} /> {timeRange(event)}</span>
+                                        {event.polo && <span>{event.polo}</span>}
+                                        {event.turma && <span>Turma {event.turma}</span>}
+                                        {event.place && <span className="inline-flex items-center gap-1"><MapPin size={12} /> {event.place}</span>}
+                                    </p>
+                                    {(event.tema || event.professor) && (
+                                        <p className="text-xs text-sae-muted mt-1 break-words">
+                                            {event.tema && <>Tema: {event.tema}</>}
+                                            {event.tema && event.professor && ' · '}
+                                            {event.professor && <>Professor(a): {event.professor}</>}
+                                        </p>
+                                    )}
+                                </li>
+                            ))}
+                        </ul>
+                    </section>
+                ))}
+            </div>
+        </div>
+    );
+};
+
 export const CourseCalendar: React.FC = () => {
     return (
         <Layout>
             <div className="container mx-auto px-4 lg:px-8 py-12">
                 <Breadcrumb items={[{ label: 'Cursos', path: '#' }, { label: 'Calendário de Aulas' }]} />
                 <SectionTitle title="Calendário de Aulas" subtitle="Acompanhe as datas e horários das próximas aulas." />
-                
-                <div className="bg-sae-darker border border-sae-border rounded-xl p-8 max-w-4xl mx-auto flex justify-center w-full overflow-hidden">
-                    <iframe 
-                        src="https://calendar.google.com/calendar/embed?height=600&wkst=1&ctz=America%2FSao_Paulo&showPrint=0&title=Agenda%20de%20Aulas&src=Y29vcmRlbmFjYW9nZXJhbEBmYWN1bGRhZGVhbHBoYWNoYW5uZWwuY29t&src=cHQtYnIuYnJhemlsaWFuI2hvbGlkYXlAZ3JvdXAudi5jYWxlbmRhci5nb29nbGUuY29t&color=%23039be5&color=%230b8043" 
-                        style={{ border: 'solid 1px #777' }} 
-                        width="800" 
-                        height="600" 
-                        frameBorder="0" 
+
+                <div className="bg-sae-darker border border-sae-border rounded-xl p-4 max-w-5xl mx-auto w-full overflow-hidden">
+                    <iframe
+                        title="Calendário de Aulas (Google Agenda)"
+                        src="https://calendar.google.com/calendar/embed?height=700&wkst=1&ctz=America%2FSao_Paulo&showPrint=0&title=Agenda%20de%20Aulas&src=Y29vcmRlbmFjYW9nZXJhbEBmYWN1bGRhZGVhbHBoYWNoYW5uZWwuY29t&src=cHQtYnIuYnJhemlsaWFuI2hvbGlkYXlAZ3JvdXAudi5jYWxlbmRhci5nb29nbGUuY29t&color=%23039be5&color=%230b8043"
+                        style={{ border: 'solid 1px #777', width: '100%', minWidth: 0 }}
+                        height="700"
+                        frameBorder="0"
                         scrolling="no"
-                        className="max-w-full"
                     ></iframe>
+                    <p className="text-xs text-sae-muted mt-3">No calendário, cada dia mostra poucas aulas e o restante fica em "Mais". A lista abaixo traz todas as aulas, com horário, polo e turma.</p>
+                </div>
+
+                <div className="max-w-5xl mx-auto w-full mt-10">
+                    <h2 className="text-2xl font-heading font-bold text-sae-text mb-5">Aulas por dia</h2>
+                    <AgendaList />
                 </div>
             </div>
         </Layout>

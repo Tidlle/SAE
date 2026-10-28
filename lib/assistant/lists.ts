@@ -17,7 +17,7 @@ const money = (value: number | null): string => (value === null ? '-' : formatCu
 
 // ---------------------------------------------------------------- valores e horas
 
-const basePrice = (course: Course): number | null => course.unicive?.total ?? course.boleto.d30 ?? course.pix.d30 ?? course.cartao.d30;
+export const basePrice = (course: Course): number | null => course.unicive?.total ?? course.boleto.d30 ?? course.pix.d30 ?? course.cartao.d30;
 
 const priceLabel = (course: Course): string => {
   const value = basePrice(course);

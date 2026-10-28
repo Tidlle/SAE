@@ -3,6 +3,8 @@ import { Catalog, Combo, Course, tokenize } from './catalog';
 import { Agenda, answerAgenda, wantsAgenda } from './calendar';
 import { answerForm, answerInstitution, answerStudy, answerVideo, wantsForm, wantsInstitution, wantsStudy, wantsVideo } from './knowledge';
 import { answerCompare, answerList, answerMore, wantsCompare, wantsList } from './lists';
+import { answerConsult, answerConsultClick, answerObjection, continueConsult, wantsConsult } from './consult';
+import { findObjection, wantsObjectionMenu } from './objections';
 import { answerClass, answerContact, answerOrigin, answerSimulator, wantsClass, wantsContact, wantsSimulator } from './extras';
 import { Answer, Block, Chip, Context, EMPTY_CONTEXT, IES_WORDS, Intent, Pay, Reply, STOP, displayName, passesFilters, rank, set, shortName, splitCourseTokens, textReply } from './shared';
 import type { CourseFilters } from './shared';
@@ -350,6 +352,7 @@ const listCombos = (combos: Combo[], title: string, ctx: Context): Answer => ({
 // ---------------------------------------------------------------- respostas fixas
 
 export const HELP_CHIPS: Chip[] = [
+  { label: 'Atender um aluno (indicar o curso ideal)', query: '#k:start' },
   { label: 'Quanto custa Pedagogia?', query: 'Quanto custa Pedagogia?' },
   { label: 'Documentos de Psicopedagogia (pós)', query: 'Documentos para matrícula em Psicopedagogia pós-graduação' },
   { label: 'Combos de licenciatura', query: 'Combos de licenciatura com aproveitamento' },
@@ -371,6 +374,7 @@ export const helpReply = (): Reply =>
         type: 'list',
         title: 'Posso responder, por exemplo',
         items: [
+          'Ajudar a escolher o curso: faço perguntas sobre o aluno (formação, área, modalidade, parcela) e indico as melhores opções',
           'Valor de um curso no D30, no pix, no boleto ou no cartão',
           'Valores de combos (Dia 10, Dia 30 e parcelamento)',
           'Documentos e pré-requisitos para matrícula',
@@ -419,6 +423,7 @@ export const answerQuestion = (catalog: Catalog, question: string, ctx: Context 
   if (pickOrigin) {
     return answerOrigin(catalog, Number(pickOrigin[1]), ctx) ?? { reply: helpReply(), ctx };
   }
+  if (query.startsWith('#k:')) return answerConsultClick(catalog, query, ctx);
   if (query === '#l:more') return answerMore(catalog, ctx);
   const intentChip = /^#i:(price|docs|info)$/.exec(query);
   if (intentChip) {
@@ -435,6 +440,12 @@ export const answerQuestion = (catalog: Catalog, question: string, ctx: Context 
   if (parsed.help) return { reply: helpReply(), ctx };
   if (parsed.greet) return { reply: helpReply(), ctx };
   if (parsed.thanks) return { reply: textReply('agradecimento', 'Por nada! Se precisar de outro curso, valor ou documento, é só perguntar.'), ctx };
+
+  // Atendimento consultivo: o aluno do vendedor responde às perguntas do assistente (texto digitado em vez de toque)
+  if (ctx.lead?.asked && parsed.intents.length === 0 && !parsed.combo && !findObjection(query)) {
+    const reply = continueConsult(catalog, query, ctx);
+    if (reply) return reply;
+  }
 
   if (parsed.combo) return answerCombos(catalog, parsed, ctx);
 
@@ -456,6 +467,14 @@ export const answerQuestion = (catalog: Catalog, question: string, ctx: Context 
 
   // Simulador, turmas presenciais e contatos (nessa ordem: "quem pode aproveitar..." é do Simulador, não de contato)
   if (wantsSimulator(parsed.all, hasCourseIntent)) return answerSimulator(catalog, parsed.all, ctx);
+  // Objeção do aluno ("achou caro", "vai pensar", "desconfia do EAD"): perguntas para descobrir o motivo e como responder
+  if (!hasCourseIntent) {
+    const objection = findObjection(query);
+    if (objection) return answerObjection(catalog, objection, ctx);
+    if (wantsObjectionMenu(query)) return answerConsultClick(catalog, '#k:obj', ctx);
+  }
+  // "indicar um curso", "meu aluno quer pós em Educação": conduz com perguntas em vez de só listar
+  if (wantsConsult(parsed.all, hasCourseIntent, parsed.intents.length > 0 && parsed.intents.every((intent) => intent === 'price'))) return answerConsult(catalog, query, ctx);
   if (wantsClass(parsed.all, hasCourseIntent)) return answerClass(catalog, parsed.all, ctx);
   if (wantsContact(parsed.all, hasCourseIntent)) return answerContact(parsed.all, ctx);
 

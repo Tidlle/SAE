@@ -8,6 +8,7 @@ const PAGE_SIZE = 25;
 
 const GROUP_LABELS: Record<FacetGroup, string> = {
   ies: 'Instituição',
+  area: 'Área',
   tipo: 'Tipo',
   modalidade: 'Modalidade',
 };

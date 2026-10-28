@@ -118,7 +118,7 @@ const VideoLibraryPage: React.FC<{ groupKey: VideoGroup['key'] }> = ({ groupKey 
   return (
     <Layout>
       <div className="container mx-auto px-4 lg:px-8 py-12">
-        <Breadcrumb items={[{ label: 'Vídeos', path: '#' }, { label: group.navLabel }]} />
+        <Breadcrumb items={[{ label: 'Conteúdos', path: '#' }, { label: group.navLabel }]} />
         <SectionTitle title={group.title} />
         <GroupTabs active={group.key} />
 

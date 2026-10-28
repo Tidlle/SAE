@@ -66,6 +66,7 @@ const HeatCanvas: React.FC<{ route: string; width: number; points: [number, numb
         // página de outra origem: não dá para medir
       }
     };
+    draw(); // redesenha já (ou limpa) quando os pontos mudam, em vez de deixar os antigos na tela
     const first = setTimeout(draw, 600);
     const again = setInterval(draw, 2000);
     return () => {
@@ -96,17 +97,18 @@ const HeatCanvas: React.FC<{ route: string; width: number; points: [number, numb
 };
 
 export const Heatmap: React.FC<{ period: Period }> = ({ period }) => {
-  const routes = useAnalyticsQuery('routes', period);
   const users = useAnalyticsQuery('users', period);
   const [route, setRoute] = useState('');
   const [target, setTarget] = useState('');
   const [width, setWidth] = useState<number | null>(null);
+  // A lista de páginas (e as contagens) respeita o usuário escolhido
+  const routes = useAnalyticsQuery('routes', { ...period, target: target || undefined });
 
-  // Escolhe a página mais vista quando a lista chega (ou quando a escolhida some do período).
+  // Escolhe a página mais vista quando a lista chega (ou quando a escolhida some do período ou do usuário).
   useEffect(() => {
-    if (!routes.data) return;
+    if (!routes.data || routes.loading) return;
     if (!routes.data.some((row) => row.route === route)) setRoute(routes.data[0]?.route ?? '');
-  }, [routes.data, route]);
+  }, [routes.data, routes.loading, route]);
 
   const heat = useAnalyticsQuery('heatmap', route ? { ...period, route, target: target || undefined, vw: width ?? undefined } : null);
   const data = heat.data;
@@ -169,7 +171,7 @@ export const Heatmap: React.FC<{ period: Period }> = ({ period }) => {
             {data && data.points.length === 0 && !heat.loading && (
               <p className="text-sm text-sae-muted mb-3">Nenhum clique registrado nesta página, com esse filtro e essa largura de tela.</p>
             )}
-            {data && <HeatCanvas route={route} width={shownWidth} points={data.points} />}
+            {data && <HeatCanvas route={route} width={shownWidth} points={heat.loading ? [] : data.points} />}
           </div>
 
           {data && (

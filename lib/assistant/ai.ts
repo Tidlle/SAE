@@ -78,6 +78,7 @@ const PAGES = [
   ['/videos/tutoriais', 'Vídeos: tutoriais da plataforma (Portal do Aluno)'],
   ['/videos/aulas', 'Vídeos: conteúdo das aulas por tema'],
   ['/videos/instagram', 'Vídeos: conteúdos do Instagram'],
+  ['/videos/flyers', 'Flyers de divulgação (baixar e compartilhar)'],
   ['/cadastros', 'Formulários de cadastro'],
   ['/quiz', 'O que posso estudar?'],
   ['/evolucao', 'Evolução funcional (pontos)'],

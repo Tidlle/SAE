@@ -29,8 +29,41 @@ export const parseCurrency = (value: string): number => {
 export const formatCurrency = (value: number): string =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
 
-export type FacetGroup = 'ies' | 'tipo' | 'modalidade';
-export const FACET_GROUPS: FacetGroup[] = ['ies', 'tipo', 'modalidade'];
+export type FacetGroup = 'ies' | 'area' | 'tipo' | 'modalidade';
+export const FACET_GROUPS: FacetGroup[] = ['ies', 'area', 'tipo', 'modalidade'];
+
+// Áreas dos cursos. Os eixos da planilha vêm com grafias diferentes ("Saúde", "Saúde e Bem-Estar", "Artes e humanidades"):
+// juntam-se em grandes áreas, para o filtro e para o Meu Assistente.
+export const AREA_LABEL: Record<string, string> = {
+  educacao: 'Educação',
+  saude: 'Saúde e Bem-Estar',
+  negocios: 'Negócios, Administração e Direito',
+  engenharia: 'Engenharia, Produção e Construção',
+  ti: 'Computação e TI',
+  sociais: 'Ciências Sociais e Comunicação',
+  artes: 'Artes e Humanidades',
+  servicos: 'Serviços',
+  outras: 'Outras áreas',
+};
+
+export const areaGroupOf = (eixo: string): string => {
+  const key = foldText(eixo).trim();
+  if (key.startsWith('educ')) return 'educacao';
+  if (/^(saude|veterin)/.test(key)) return 'saude';
+  if (/^(negoc|administ|direito)/.test(key)) return 'negocios';
+  if (key.startsWith('engenh')) return 'engenharia';
+  if (key.startsWith('comput')) return 'ti';
+  if (key.startsWith('ciencias soc')) return 'sociais';
+  if (key.startsWith('artes')) return 'artes';
+  if (key.startsWith('servic')) return 'servicos';
+  return 'outras';
+};
+
+// Área de um curso a partir do eixo (vazio quando o curso não tem eixo)
+export const areaLabelOf = (eixo: unknown): string => {
+  const raw = (eixo ?? '').toString().trim();
+  return raw ? AREA_LABEL[areaGroupOf(raw)] : '';
+};
 
 export interface Facet {
   key: string;
@@ -43,11 +76,13 @@ export const facetKey = (value: unknown): string => foldText((value ?? '').toStr
 
 // Conta os valores distintos de uma coluna, juntando variações de maiúsculas/acentos
 // e usando como rótulo a grafia mais frequente.
-export const buildFacet = (rows: string[][], index: number): Facet[] => {
+// `transform` converte o valor da célula antes de contar (usado na área, que junta eixos parecidos).
+export const buildFacet = (rows: string[][], index: number, transform?: (raw: string) => string): Facet[] => {
   if (index < 0) return [];
   const groups = new Map<string, { count: number; labels: Map<string, number> }>();
   rows.forEach((row) => {
-    const raw = (row[index] ?? '').toString().trim();
+    const cell = (row[index] ?? '').toString().trim();
+    const raw = transform ? transform(cell) : cell;
     if (!raw) return;
     const key = facetKey(raw);
     const group = groups.get(key) ?? { count: 0, labels: new Map<string, number>() };

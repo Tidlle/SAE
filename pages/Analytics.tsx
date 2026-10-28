@@ -7,6 +7,7 @@ import { Heatmap } from '../components/analytics/Heatmap';
 import { Journey } from '../components/analytics/Journey';
 import { Flow } from '../components/analytics/Flow';
 import { TimeByUser } from '../components/analytics/TimeByUser';
+import { AssistantStats } from '../components/analytics/Assistant';
 import { inputClass } from '../components/analytics/Shared';
 import { Period, lastDays } from '../lib/analytics';
 import { can } from '../lib/permissions';
@@ -17,6 +18,7 @@ const TABS = [
   { id: 'heatmap', label: 'Mapa de calor' },
   { id: 'journey', label: 'Jornada do usuário' },
   { id: 'time', label: 'Tempo por usuário' },
+  { id: 'assistant', label: 'Atendimentos' },
   { id: 'flow', label: 'Fluxo' },
 ] as const;
 type TabId = (typeof TABS)[number]['id'];
@@ -109,6 +111,7 @@ export const Analytics: React.FC = () => {
         {tab === 'heatmap' && <Heatmap period={period} />}
         {tab === 'journey' && <Journey period={period} />}
         {tab === 'time' && <TimeByUser period={period} />}
+        {tab === 'assistant' && <AssistantStats period={period} />}
         {tab === 'flow' && <Flow period={period} />}
       </div>
     </Layout>

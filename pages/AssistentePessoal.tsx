@@ -4,24 +4,29 @@ import { Card, Button, Breadcrumb } from '../components/UI';
 import { HistoryPanel } from '../components/assistant/HistoryPanel';
 import { CopyButton } from '../components/CopyButton';
 import { ReplyView } from '../components/assistant/ReplyView';
-import { Send, Bot, User, Sparkles, Plus, History, AlertCircle, RefreshCw } from 'lucide-react';
+import { Send, Bot, User, Sparkles, Plus, History, AlertCircle, RefreshCw, Handshake } from 'lucide-react';
 import { Catalog, loadCatalog } from '../lib/assistant/catalog';
 import { Agenda, loadAgenda } from '../lib/assistant/calendar';
 import { AI_FALLBACK_TAGS, AiTurn, askAi } from '../lib/assistant/ai';
-import { Block, Chip, Context, EMPTY_CONTEXT, HELP_CHIPS, Reply, answerQuestion, replyToPlain } from '../lib/assistant/engine';
+import { applyInterpretation, interpretMode, interpretStep, reaskConsult } from '../lib/assistant/consult';
+import { askInterpret } from '../lib/assistant/interpret';
+import { Answer, Block, Chip, Context, EMPTY_CONTEXT, HELP_CHIPS, Reply, answerQuestion, replyToPlain } from '../lib/assistant/engine';
 import { trackAction } from '../lib/tracker';
 import {
   ChatMessage as Message,
   EMPTY_STORE,
   Store,
+  StoredContext,
   clearStore,
   fromStored,
+  fromStoredContext,
   groupConversations,
   loadStore,
   newConversationId,
   removeConversation,
   saveStore,
   searchConversations,
+  toStoredContext,
   upsertConversation,
 } from '../lib/assistant/history';
 
@@ -39,6 +44,11 @@ export const AssistentePessoal: React.FC = () => {
   const [aiOff, setAiOff] = useState(false); // a IA não está configurada no servidor: para de tentar nesta sessão
   const messagesRef = useRef<Message[]>([]);
   messagesRef.current = messages;
+  const ctxRef = useRef<Context>(EMPTY_CONTEXT);
+  ctxRef.current = ctx;
+  const catalogRef = useRef<Catalog | null>(null);
+  catalogRef.current = catalog;
+  const pendingContext = useRef<StoredContext | undefined>(undefined); // atendimento guardado, a restaurar quando a planilha carregar
 
   // Histórico: lista de conversas salvas neste navegador (por login) e a conversa aberta
   const login = localStorage.getItem('userLogin') ?? '';
@@ -61,17 +71,25 @@ export const AssistentePessoal: React.FC = () => {
     if (last) {
       const restored = fromStored(last.messages);
       loadedMessages.current = restored;
+      pendingContext.current = last.ctx;
       setActiveId(last.id);
       setMessages(restored);
     }
   }, [login]);
+
+  // Restaura o atendimento (perfil do aluno, cursos indicados, resultado) da conversa reaberta, ligando os cursos de novo à planilha
+  useEffect(() => {
+    if (!catalog || !pendingContext.current) return;
+    setCtx(fromStoredContext(pendingContext.current, catalog));
+    pendingContext.current = undefined;
+  }, [catalog]);
 
   // Grava a conversa aberta (com um pequeno atraso, para não gravar a cada tecla)
   const persistNow = useCallback(() => {
     clearTimeout(saveTimer.current);
     if (messagesRef.current.every((message) => message.loading)) return;
     const id = activeIdRef.current ?? newConversationId();
-    const next = saveStore(login, upsertConversation(storeRef.current, id, messagesRef.current));
+    const next = saveStore(login, upsertConversation(storeRef.current, id, messagesRef.current, new Date(), toStoredContext(ctxRef.current, catalogRef.current)));
     if (next === storeRef.current) return;
     activeIdRef.current = id;
     setActiveId(id);
@@ -142,6 +160,34 @@ export const AssistentePessoal: React.FC = () => {
       return;
     }
 
+    // Atendimento consultivo: texto livre que as regras não entenderam. A IA devolve só campos do atendimento; sem IA, repete a pergunta.
+    const mode = interpretMode(trimmed, ctx, answer.reply.tag, AI_FALLBACK_TAGS);
+    if (mode === 'step' && aiOff) {
+      const again = reaskConsult(catalog, ctx, trimmed);
+      if (again) {
+        setCtx(again.ctx);
+        trackAction(`Assistente: ${again.reply.tag}`);
+        setMessages((current) => [...current, userMessage, { id: `${now}-a`, role: 'assistant', reply: again.reply, loadedAt: catalog.loadedAt, timestamp: new Date(now) }]);
+        return;
+      }
+    }
+    if (mode && !aiOff) {
+      const pendingId = `${now}-a`;
+      setMessages((current) => [...current, userMessage, { id: pendingId, role: 'assistant', loading: true, loadingText: 'Entendendo o pedido...', timestamp: new Date(now) }]);
+      const finish = (final: Answer) => {
+        setCtx(final.ctx);
+        trackAction(`Assistente: ${final.reply.tag}`);
+        setMessages((current) => current.map((message) => (message.id === pendingId ? { ...message, loading: false, reply: final.reply, loadedAt: catalog.loadedAt } : message)));
+      };
+      askInterpret(trimmed, interpretStep(ctx))
+        .then((patch) => finish(applyInterpretation(catalog, trimmed, ctx, mode, patch) ?? (mode === 'step' ? reaskConsult(catalog, ctx, trimmed) : null) ?? answer))
+        .catch((error: Error & { code?: string }) => {
+          if (error.code === 'not_configured' || error.code === 'auth' || /Ação inválida/.test(error.message)) setAiOff(true);
+          finish((mode === 'step' ? reaskConsult(catalog, ctx, trimmed) : null) ?? answer);
+        });
+      return;
+    }
+
     // Reserva com IA: só quando a base do SAE não soube responder. A pergunta, sem dados pessoais, vai ao Apps Script.
     if (AI_FALLBACK_TAGS.has(answer.reply.tag) && !aiOff) {
       const pendingId = `${now}-a`;
@@ -185,12 +231,18 @@ export const AssistentePessoal: React.FC = () => {
 
   const handlePick = (chip: Chip) => send(chip.label, chip.query);
 
-  const resetConversation = (nextId: string | null, nextMessages: Message[]) => {
+  const resetConversation = (nextId: string | null, nextMessages: Message[], storedContext?: StoredContext) => {
     loadedMessages.current = nextMessages;
     activeIdRef.current = nextId;
     setActiveId(nextId);
     setMessages(nextMessages);
-    setCtx(EMPTY_CONTEXT); // o contexto ("e os documentos?") não vale para uma conversa de outra hora
+    // O contexto comum ("e os documentos?") não vale para uma conversa de outra hora; só o atendimento guardado volta
+    pendingContext.current = undefined;
+    if (storedContext && catalog) setCtx(fromStoredContext(storedContext, catalog));
+    else {
+      setCtx(EMPTY_CONTEXT);
+      pendingContext.current = storedContext;
+    }
     setInput('');
     setHistoryOpen(false);
     inputRef.current?.focus();
@@ -214,7 +266,7 @@ export const AssistentePessoal: React.FC = () => {
     if (!conversation) return;
     storeRef.current = saveStore(login, { ...storeRef.current, activeId: id });
     setStore(storeRef.current);
-    resetConversation(id, fromStored(conversation.messages));
+    resetConversation(id, fromStored(conversation.messages), conversation.ctx);
   };
 
   const handleDeleteConversation = (id: string) => {
@@ -338,15 +390,25 @@ export const AssistentePessoal: React.FC = () => {
                   <Bot size={40} className="text-sae-accentText" />
                 </div>
                 <h3 className="text-2xl font-bold text-sae-text mb-2">Olá, {userName}!</h3>
-                <p className="text-sae-muted max-w-md mb-8">
+                <p className="text-sae-muted max-w-md mb-6">
                   Pergunte sobre <strong className="text-sae-text">valores</strong>, <strong className="text-sae-text">combos</strong>,{' '}
                   <strong className="text-sae-text">documentos</strong>, <strong className="text-sae-text">listas e comparações</strong>,{' '}
                   <strong className="text-sae-text">aulas e turmas</strong>, <strong className="text-sae-text">instituições</strong>,{' '}
                   <strong className="text-sae-text">vídeos</strong>, <strong className="text-sae-text">cadastros</strong> e{' '}
                   <strong className="text-sae-text">contatos</strong>. Eu respondo direto da planilha e das páginas do SAE e mostro a fonte.
                 </p>
+                {/* Atendimento consultivo: botão de destaque, centralizado, acima das sugestões */}
+                <button
+                  type="button"
+                  onClick={() => send('Atender um aluno', '#k:start')}
+                  disabled={!ready}
+                  className="mb-3 flex items-center justify-center gap-2 px-8 py-3 rounded-full bg-sae-accent text-white font-bold text-base shadow-lg shadow-sae-accent/25 hover:bg-sae-accentHover hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:hover:translate-y-0"
+                >
+                  <Handshake size={20} /> Atender um aluno
+                </button>
+                <p className="text-xs text-sae-muted mb-8">Eu pergunto sobre o aluno e indico o curso ideal.</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-xl w-full">
-                  {HELP_CHIPS.map((suggestion) => (
+                  {HELP_CHIPS.filter((suggestion) => suggestion.query !== '#k:start').map((suggestion) => (
                     <button
                       key={suggestion.label}
                       onClick={() => send(suggestion.label, suggestion.query)}

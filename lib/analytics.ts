@@ -67,14 +67,22 @@ export interface FlowData {
   paths: { path: string; n: number }[];
 }
 
+export interface AssistantStatsData {
+  totals: { recommended: number; messages: number; sheets: number; objections: number; won: number; lost: number };
+  objections: { id: string; n: number }[];
+  lost: { id: string; n: number }[];
+  users: { login: string; recommended: number; objections: number; messages: number; won: number; lost: number }[];
+}
+
 interface QueryMap {
   overview: { params: Period; data: OverviewData };
-  routes: { params: Period; data: RouteRow[] };
+  routes: { params: Period & { target?: string }; data: RouteRow[] };
   users: { params: Period; data: UserRow[] };
   heatmap: { params: Period & { route: string; target?: string; vw?: number }; data: HeatmapData };
   journey: { params: Period & { target: string }; data: JourneyEvent[] };
   flow: { params: Period; data: FlowData };
   time: { params: Period; data: TimeRow[] };
+  assistant: { params: Period; data: AssistantStatsData };
 }
 
 // Consulta o painel de análises pelo Apps Script (só responde para Administrativo).
@@ -104,6 +112,7 @@ const ROUTE_NAMES: Record<string, string> = {
   '/videos/tutoriais': 'Vídeos: Tutoriais da plataforma',
   '/videos/aulas': 'Vídeos: Conteúdo das aulas',
   '/videos/instagram': 'Vídeos: Conteúdos do Instagram',
+  '/videos/flyers': 'Vídeos: Flyers',
   '/cursos/info': 'Cursos: Informações',
   '/cursos/presenciais': 'Cursos: Presenciais',
   '/cursos/filtro': 'Cursos: Filtro Avançado',

@@ -24,6 +24,49 @@ export interface Reply {
   sources: string[];
 }
 
+// Atendimento consultivo (lib/assistant/consult.ts): o que o assistente já descobriu sobre o aluno do vendedor.
+export type LeadStep = 'degree' | 'goal' | 'formation' | 'origin' | 'area' | 'theme' | 'modality' | 'polo' | 'budget' | 'urgency' | 'objective';
+
+export interface LeadArea {
+  label: string;
+  group: string; // grande área da planilha (educacao, saude...), ou '' quando foi digitada
+  words: string[]; // palavras digitadas, procuradas no nome e no eixo dos cursos
+}
+
+export interface Lead {
+  asked: LeadStep | ''; // pergunta que está esperando resposta
+  questions: number; // perguntas já respondidas
+  degree: '' | 'sim' | 'nao'; // o aluno já tem graduação?
+  tipoKey: string; // escolha de tipo de curso (chave de TIPO_CHOICES)
+  tipos: string[] | null; // tipos aceitos (filtro de tipo do motor); null = ainda não definido, [] = qualquer
+  area: LeadArea | 'any' | null; // null = ainda não definido
+  themed: boolean; // a pergunta do tema dentro da área já foi respondida
+  modality: string | null; // 'ead' | 'semi' | 'presencial'; '' = tanto faz; null = ainda não definido
+  budget: number | 'any' | null; // parcela mensal máxima estimada
+  ies: string;
+  sort: 'price' | 'fast';
+  objections: string[]; // objeções já trabalhadas no atendimento (ids de lib/assistant/objections.ts)
+  origin: { id: number; label: string } | 'any' | null; // graduação de origem (linha do Simulador), na segunda graduação
+  polo: string | null; // polo presencial; '' = qualquer
+  urgency: 'now' | 'later' | null; // quer começar logo?
+  objective: string | null; // objetivo do aluno (carreira, mudar, exigencia, diploma); '' = não sabe
+  outcome: '' | 'won' | 'lost'; // como terminou o atendimento
+  lostReason: string; // id da objeção (ou 'outro') quando a venda não fechou
+}
+
+// Dados que a IA (ou o texto livre) pode preencher no atendimento; cada campo é validado antes de valer.
+export interface LeadPatch {
+  degree?: 'sim' | 'nao';
+  tipo?: string;
+  area?: string;
+  modality?: string;
+  budget?: number;
+  ies?: string;
+  objective?: string;
+  urgency?: 'now' | 'later';
+  polo?: string;
+}
+
 export interface Context {
   kind: 'course' | 'combo' | null;
   courseIds: number[];
@@ -34,9 +77,10 @@ export interface Context {
   listIds: number[]; // última lista de cursos (para "mostrar mais")
   listOffset: number;
   listTitle: string;
+  lead: Lead | null; // atendimento consultivo em andamento
 }
 
-export const EMPTY_CONTEXT: Context = { kind: null, courseIds: [], comboId: null, pending: [], pay: [], simDest: '', listIds: [], listOffset: 0, listTitle: '' };
+export const EMPTY_CONTEXT: Context = { kind: null, courseIds: [], comboId: null, pending: [], pay: [], simDest: '', listIds: [], listOffset: 0, listTitle: '', lead: null };
 
 export interface Answer {
   reply: Reply;

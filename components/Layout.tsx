@@ -9,12 +9,13 @@ const NAV_ITEMS = [
   { label: 'Início', path: '/' },
   { label: 'Sobre SAE', path: '/sobre' },
   {
-    label: 'Vídeos',
+    label: 'Conteúdos',
     path: '#',
     children: [
       { label: 'Tutoriais da plataforma', path: '/videos/tutoriais' },
       { label: 'Conteúdo das aulas', path: '/videos/aulas' },
       { label: 'Conteúdos do Instagram', path: '/videos/instagram' },
+      { label: 'Flyers', path: '/videos/flyers' },
     ],
   },
   { 

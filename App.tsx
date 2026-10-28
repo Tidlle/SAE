@@ -13,6 +13,7 @@ import { Simulador } from './pages/Simulador';
 import { CoursesInfo, CoursesPresencial, Combos, CourseFilter, CourseCreation, CourseCalendar } from './pages/CoursePages';
 import { Quiz, Evolution } from './pages/FeaturePages';
 import { VideoTutorials, VideoLessons, VideoInstagram } from './pages/Videos';
+import { Flyers } from './pages/Flyers';
 import { Profile } from './pages/Profile';
 import { Analytics } from './pages/Analytics';
 
@@ -58,6 +59,7 @@ const App: React.FC = () => {
         <Route path="/videos/tutoriais" element={<ProtectedRoute><VideoTutorials /></ProtectedRoute>} />
         <Route path="/videos/aulas" element={<ProtectedRoute><VideoLessons /></ProtectedRoute>} />
         <Route path="/videos/instagram" element={<ProtectedRoute><VideoInstagram /></ProtectedRoute>} />
+        <Route path="/videos/flyers" element={<ProtectedRoute><Flyers /></ProtectedRoute>} />
         <Route path="/quiz" element={<ProtectedRoute><CourseQuiz /></ProtectedRoute>} />
         <Route path="/evolucao" element={<ProtectedRoute><Evolution /></ProtectedRoute>} />
       </Routes>

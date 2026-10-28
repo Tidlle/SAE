@@ -84,14 +84,16 @@ returns json language sql security definer set search_path = public as $$
   );
 $$;
 
--- Paginas com atividade (para escolher qual mapa de calor ver).
-create or replace function public.sae_routes(p_from timestamptz, p_to timestamptz)
+-- Paginas com atividade (para escolher qual mapa de calor ver); com p_login, so as visitas desse usuario.
+-- A versao antiga (sem p_login) sai antes, para nao ficar duas funcoes com o mesmo nome.
+drop function if exists public.sae_routes(timestamptz, timestamptz);
+create or replace function public.sae_routes(p_from timestamptz, p_to timestamptz, p_login text default null)
 returns json language sql security definer set search_path = public as $$
   select coalesce(json_agg(r order by r.views desc), '[]'::json) from (
     select route,
            count(*) filter (where type = 'pageview') as views,
            count(*) filter (where type = 'click') as clicks
-    from sae_events where ts >= p_from and ts <= p_to
+    from sae_events where ts >= p_from and ts <= p_to and (p_login is null or login = p_login)
     group by route
   ) r;
 $$;
@@ -238,20 +240,63 @@ returns json language sql security definer set search_path = public as $$
   ) r;
 $$;
 
+-- Atendimentos consultivos do Meu Assistente (so a partir dos eventos "action" com o rotulo "Assistente: consulta:...").
+-- Nunca guarda o texto digitado: o rotulo e so o tipo da resposta (pergunta, recomendacao, objecao, resultado).
+create or replace function public.sae_assistant(p_from timestamptz, p_to timestamptz)
+returns json language sql security definer set search_path = public as $$
+  with ev as (
+    select login, substr(label, length('Assistente: consulta:') + 1) as tag
+    from sae_events
+    where type = 'action' and label like 'Assistente: consulta:%' and ts >= p_from and ts <= p_to
+  )
+  select json_build_object(
+    'totals', (select json_build_object(
+        'recommended', count(*) filter (where tag = 'recomendacao'),
+        'messages',    count(*) filter (where tag = 'mensagem'),
+        'sheets',      count(*) filter (where tag = 'ficha'),
+        'objections',  count(*) filter (where tag like 'objecao:%'),
+        'won',         count(*) filter (where tag = 'resultado:fechada'),
+        'lost',        count(*) filter (where tag like 'perdida:%')
+      ) from ev),
+    'objections', coalesce((
+      select json_agg(json_build_object('id', substr(tag, 9), 'n', n) order by n desc)
+      from (select tag, count(*) as n from ev where tag like 'objecao:%' group by tag) o
+    ), '[]'::json),
+    'lost', coalesce((
+      select json_agg(json_build_object('id', substr(tag, 9), 'n', n) order by n desc)
+      from (select tag, count(*) as n from ev where tag like 'perdida:%' group by tag) l
+    ), '[]'::json),
+    'users', coalesce((
+      select json_agg(u order by u.recommended desc, u.won desc)
+      from (
+        select login,
+               count(*) filter (where tag = 'recomendacao') as recommended,
+               count(*) filter (where tag like 'objecao:%') as objections,
+               count(*) filter (where tag = 'mensagem') as messages,
+               count(*) filter (where tag = 'resultado:fechada') as won,
+               count(*) filter (where tag like 'perdida:%') as lost
+        from ev group by login
+      ) u
+    ), '[]'::json)
+  );
+$$;
+
 revoke all on function public.sae_overview(timestamptz, timestamptz) from public, anon, authenticated;
-revoke all on function public.sae_routes(timestamptz, timestamptz) from public, anon, authenticated;
+revoke all on function public.sae_routes(timestamptz, timestamptz, text) from public, anon, authenticated;
 revoke all on function public.sae_users(timestamptz, timestamptz) from public, anon, authenticated;
 revoke all on function public.sae_heatmap(text, timestamptz, timestamptz, text, integer) from public, anon, authenticated;
 revoke all on function public.sae_journey(text, timestamptz, timestamptz) from public, anon, authenticated;
 revoke all on function public.sae_flow(timestamptz, timestamptz) from public, anon, authenticated;
 revoke all on function public.sae_time_by_user(timestamptz, timestamptz) from public, anon, authenticated;
+revoke all on function public.sae_assistant(timestamptz, timestamptz) from public, anon, authenticated;
 grant execute on function public.sae_overview(timestamptz, timestamptz) to service_role;
-grant execute on function public.sae_routes(timestamptz, timestamptz) to service_role;
+grant execute on function public.sae_routes(timestamptz, timestamptz, text) to service_role;
 grant execute on function public.sae_users(timestamptz, timestamptz) to service_role;
 grant execute on function public.sae_heatmap(text, timestamptz, timestamptz, text, integer) to service_role;
 grant execute on function public.sae_journey(text, timestamptz, timestamptz) to service_role;
 grant execute on function public.sae_flow(timestamptz, timestamptz) to service_role;
 grant execute on function public.sae_time_by_user(timestamptz, timestamptz) to service_role;
+grant execute on function public.sae_assistant(timestamptz, timestamptz) to service_role;
 
 -- Retencao (opcional): apaga eventos com mais de 180 dias todo dia as 03:00.
 -- Exige a extensao pg_cron (Database > Extensions > pg_cron). Descomente para ativar:

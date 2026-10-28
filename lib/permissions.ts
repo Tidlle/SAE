@@ -1,11 +1,12 @@
 import { foldText } from './courses';
 
 export type Role = 'Administrativo' | 'Consultor' | 'Representante';
-export type Permission = 'postFeed' | 'createNotice' | 'deleteNotice' | 'createUser' | 'viewAnalytics';
+export type Permission = 'postFeed' | 'createNotice' | 'deleteNotice' | 'createUser' | 'viewAnalytics' | 'manageFlyers';
 
 // Consultor e Representante têm os mesmos privilégios e não podem: publicar no feed, criar nem apagar avisos,
-// nem criar usuários, nem ver o painel de análises. Só o Administrativo tem acesso total.
-const DENIED_FOR_RESTRICTED: Permission[] = ['postFeed', 'createNotice', 'deleteNotice', 'createUser', 'viewAnalytics'];
+// criar usuários, ver o painel de análises, nem adicionar ou excluir flyers (só baixam e compartilham).
+// Só o Administrativo tem acesso total.
+const DENIED_FOR_RESTRICTED: Permission[] = ['postFeed', 'createNotice', 'deleteNotice', 'createUser', 'viewAnalytics', 'manageFlyers'];
 
 export const ROLE_STORAGE_KEY = 'userPerfil';
 
