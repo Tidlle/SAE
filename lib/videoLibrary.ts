@@ -4,7 +4,7 @@ import { PLAYLISTS } from './videoPlaylists.generated';
 //
 // - Tutoriais da plataforma: vídeos escolhidos um a um e agrupados por tema (id do YouTube + título).
 // - Conteúdo das aulas: uma seção por playlist do YouTube (`playlistId`); a lista de vídeos vem de
-//   lib/videoPlaylists.generated.ts, atualizada com `npm run videos:update`.
+//   lib/videoPlaylists.generated.ts, atualizada com `npm run videos:update`, e os vídeos mais novos chegam sozinhos pelo Apps Script (lib/videoLive.ts).
 // - Conteúdos do Instagram: seções por tema com links de posts e reels do próprio Instagram (`instagram`).
 
 export interface LibraryVideo {
@@ -175,8 +175,38 @@ export const VIDEO_GROUPS: VideoGroup[] = [
 
 export const groupByKey = (key: VideoGroup['key']): VideoGroup => VIDEO_GROUPS.find((group) => group.key === key) as VideoGroup;
 
+// Vídeos mais recentes das playlists, buscados no YouTube pelo Apps Script quando a página abre (lib/videoLive.ts).
+// `complete`: o feed trouxe a playlist inteira (o YouTube só passa de 15 vídeos no limite), então vídeos que sumiram dela saem também.
+export interface LivePlaylist {
+  videos: LibraryVideo[];
+  complete: boolean;
+}
+
+let livePlaylists: Record<string, LivePlaylist> = {};
+
+export const setLivePlaylists = (data: Record<string, LivePlaylist>): void => {
+  livePlaylists = data;
+};
+
+// Os ids de todas as playlists usadas nas seções
+export const playlistIds = (): string[] => [
+  ...new Set(VIDEO_GROUPS.flatMap((group) => group.sections.map((section) => section.playlistId).filter((id): id is string => Boolean(id)))),
+];
+
+// Lista da playlist: a que veio no código mais o que o YouTube trouxe agora. Vídeos novos vêm primeiro.
+const playlistVideos = (playlistId: string): LibraryVideo[] => {
+  const snapshot = PLAYLISTS[playlistId]?.videos ?? [];
+  const live = livePlaylists[playlistId];
+  if (!live || live.videos.length === 0) return snapshot;
+  const liveIds = new Map(live.videos.map((video) => [video.id, video]));
+  const known = new Set(snapshot.map((video) => video.id));
+  const fresh = live.videos.filter((video) => !known.has(video.id));
+  const kept = (live.complete ? snapshot.filter((video) => liveIds.has(video.id)) : snapshot).map((video) => ({ id: video.id, title: liveIds.get(video.id)?.title || video.title }));
+  return [...fresh, ...kept];
+};
+
 // Vídeos de uma seção: os escolhidos à mão ou os da playlist.
-export const sectionVideos = (section: VideoSection): LibraryVideo[] => section.videos ?? (section.playlistId ? PLAYLISTS[section.playlistId]?.videos ?? [] : []);
+export const sectionVideos = (section: VideoSection): LibraryVideo[] => section.videos ?? (section.playlistId ? playlistVideos(section.playlistId) : []);
 
 export const playlistUrl = (playlistId: string): string => `https://www.youtube.com/playlist?list=${playlistId}`;
 

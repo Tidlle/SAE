@@ -1,12 +1,14 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Download, ImagePlus, Image as ImageIcon, Plus, RefreshCw, Search, Share2, Trash2, X } from 'lucide-react';
 import { Layout } from '../components/Layout';
 import { Breadcrumb, Button, Card, SectionTitle } from '../components/UI';
 import { FEED_SCRIPT_URL } from '../lib/feed';
-import { FLYER_IMAGE, FLYER_LIMITS, Flyer, ShareOutcome, createFlyer, deleteFlyer, downloadFlyer, flyerImageSources, loadFlyers, shareFlyer } from '../lib/flyers';
+import { FLYER_AREAS, FLYER_IMAGE, FLYER_LIMITS, FLYER_TYPES, Flyer, NO_AREA, NO_TYPE, ShareOutcome, createFlyer, deleteFlyer, downloadFlyer, flyerImageSources, loadFlyers, shareFlyer } from '../lib/flyers';
 import { compressImage } from '../lib/images';
 import { foldText } from '../lib/courses';
 import { can } from '../lib/permissions';
+import { clearSession, recoverLogin } from '../lib/session';
 import { timeAgo } from '../lib/text';
 
 const SEARCH_FROM = 8; // a busca só aparece quando há mais flyers que isso
@@ -38,15 +40,30 @@ const FlyerImage: React.FC<{ flyer: Flyer; width: number; className: string }> =
   return <img key={sources[attempt]} src={sources[attempt]} alt={flyer.title} loading="lazy" referrerPolicy="no-referrer" onError={() => setAttempt((current) => current + 1)} className={className} />;
 };
 
-// Janela para o Administrativo adicionar um flyer: título e uma imagem.
-const FlyerComposer: React.FC<{ open: boolean; onClose: () => void; onCreated: () => Promise<void>; user: { login: string; name: string } }> = ({ open, onClose, onCreated, user }) => {
+// Janela para o Administrativo adicionar um flyer: título, tipo, área e uma imagem.
+// Abre já com o tipo e a área que estiverem filtrados na página.
+const FlyerComposer: React.FC<{
+  open: boolean;
+  onClose: () => void;
+  onCreated: () => Promise<void>;
+  user: { login: string; name: string };
+  defaults: { type: string; area: string };
+}> = ({ open, onClose, onCreated, user, defaults }) => {
   const [title, setTitle] = useState('');
+  const [type, setType] = useState('');
+  const [area, setArea] = useState('');
   const [image, setImage] = useState('');
   const [processing, setProcessing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const titleRef = useRef<HTMLInputElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setType((FLYER_TYPES as readonly string[]).includes(defaults.type) ? defaults.type : '');
+    setArea(FLYER_AREAS.includes(defaults.area) ? defaults.area : '');
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -84,11 +101,13 @@ const FlyerComposer: React.FC<{ open: boolean; onClose: () => void; onCreated: (
     event.preventDefault();
     if (submitting || processing) return;
     if (!title.trim()) return setError('Informe o título do flyer.');
+    if (!type) return setError('Escolha o tipo do flyer.');
+    if (!area) return setError('Escolha a área do flyer.');
     if (!image) return setError('Escolha a imagem do flyer.');
     setSubmitting(true);
     setError('');
     try {
-      await createFlyer(title, image, user);
+      await createFlyer({ title, type, area, image }, user);
       setTitle('');
       setImage('');
       onClose();
@@ -129,6 +148,25 @@ const FlyerComposer: React.FC<{ open: boolean; onClose: () => void; onCreated: (
         </div>
 
         <input ref={titleRef} className={inputClass} placeholder="Título (ex.: Pós em Estética, turma 11/2026)" maxLength={FLYER_LIMITS.title} value={title} onChange={(event) => setTitle(event.target.value)} />
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <select className={inputClass} value={type} onChange={(event) => setType(event.target.value)} aria-label="Tipo">
+            <option value="">Tipo</option>
+            {FLYER_TYPES.map((name) => (
+              <option key={name} value={name}>
+                {name}
+              </option>
+            ))}
+          </select>
+          <select className={inputClass} value={area} onChange={(event) => setArea(event.target.value)} aria-label="Área">
+            <option value="">Área</option>
+            {FLYER_AREAS.map((name) => (
+              <option key={name} value={name}>
+                {name}
+              </option>
+            ))}
+          </select>
+        </div>
 
         <div>
           {image && (
@@ -206,16 +244,26 @@ const FlyerPreview: React.FC<{ flyer: Flyer | null; onClose: () => void; actions
 };
 
 export const Flyers: React.FC = () => {
+  const navigate = useNavigate();
   const userName = localStorage.getItem('userNome') ?? '';
-  const userLogin = localStorage.getItem('userLogin') ?? '';
   const mayManage = can('manageFlyers');
+  const [userLogin, setUserLogin] = useState(localStorage.getItem('userLogin') ?? '');
+  const [recovering, setRecovering] = useState(mayManage && !userLogin);
   const canAdd = mayManage && Boolean(FEED_SCRIPT_URL) && Boolean(userLogin);
+  // Por que o botão "Adicionar flyer" está apagado (o servidor só aceita quem se identifica pelo login)
+  const blockedReason = !mayManage || canAdd || recovering
+    ? ''
+    : !FEED_SCRIPT_URL
+      ? 'O envio de flyers ainda não foi configurado.'
+      : 'Não identificamos o seu login nesta sessão. Saia e entre de novo no SAE para adicionar flyers.';
 
   const [flyers, setFlyers] = useState<Flyer[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [search, setSearch] = useState('');
+  const [typeFilter, setTypeFilter] = useState('');
+  const [areaFilter, setAreaFilter] = useState('');
   const [composerOpen, setComposerOpen] = useState(false);
   const [preview, setPreview] = useState<Flyer | null>(null);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
@@ -239,6 +287,26 @@ export const Flyers: React.FC = () => {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  // Sessão aberta antes de o login ser guardado: tenta recuperá-lo pelo nome antes de pedir para entrar de novo
+  useEffect(() => {
+    if (!mayManage || userLogin) return;
+    let active = true;
+    setRecovering(true);
+    recoverLogin().then((login) => {
+      if (!active) return;
+      if (login) setUserLogin(login);
+      setRecovering(false);
+    });
+    return () => {
+      active = false;
+    };
+  }, [mayManage, userLogin]);
+
+  const signInAgain = () => {
+    clearSession();
+    navigate('/login', { replace: true });
+  };
 
   const closeComposer = useCallback(() => setComposerOpen(false), []);
   const closePreview = useCallback(() => setPreview(null), []);
@@ -276,8 +344,71 @@ export const Flyers: React.FC = () => {
     }
   };
 
+  // Tipo e área de cada flyer; os de antes da classificação caem em "Sem tipo" / "Sem área"
+  const typeOf = (flyer: Flyer) => flyer.type || NO_TYPE;
+  const areaOf = (flyer: Flyer) => flyer.area || NO_AREA;
   const term = foldText(search).trim();
-  const shown = term ? flyers.filter((flyer) => foldText(flyer.title).includes(term)) : flyers;
+  const matches = (flyer: Flyer, skip?: 'type' | 'area') =>
+    (skip === 'type' || !typeFilter || typeOf(flyer) === typeFilter) &&
+    (skip === 'area' || !areaFilter || areaOf(flyer) === areaFilter) &&
+    (!term || foldText(flyer.title).includes(term));
+  const shown = flyers.filter((flyer) => matches(flyer));
+
+  // Opções dos filtros: só o que existe, com a contagem já considerando os outros filtros
+  const typeOptions = [...FLYER_TYPES, NO_TYPE]
+    .map((name) => ({ name, count: flyers.filter((flyer) => matches(flyer, 'type') && typeOf(flyer) === name).length }))
+    .filter((option) => option.count > 0 || option.name === typeFilter);
+  const areaOptions = [...FLYER_AREAS, NO_AREA]
+    .map((name) => ({ name, count: flyers.filter((flyer) => matches(flyer, 'area') && areaOf(flyer) === name).length }))
+    .filter((option) => option.count > 0 || option.name === areaFilter);
+  const filtering = Boolean(typeFilter || areaFilter || term);
+  const clearFilters = () => {
+    setTypeFilter('');
+    setAreaFilter('');
+    setSearch('');
+  };
+
+  // Separação: uma seção por tipo e, dentro dela, um bloco por área
+  const sections = [...FLYER_TYPES, NO_TYPE]
+    .map((type) => ({
+      type,
+      areas: [...FLYER_AREAS, NO_AREA]
+        .map((area) => ({ area, items: shown.filter((flyer) => typeOf(flyer) === type && areaOf(flyer) === area) }))
+        .filter((group) => group.items.length > 0),
+    }))
+    .filter((section) => section.areas.length > 0);
+
+  const renderCard = (flyer: Flyer) => (
+    <Card key={flyer.id} className="flex flex-col hover:border-sae-accent/50 transition-all duration-300">
+      <button type="button" onClick={() => setPreview(flyer)} aria-label={`Ampliar: ${flyer.title}`} className="block w-full aspect-square bg-sae-soft overflow-hidden">
+        <FlyerImage flyer={flyer} width={600} className="w-full h-full object-contain" />
+      </button>
+      <div className="p-4 flex flex-col flex-1">
+        <h4 className="font-bold text-sae-text leading-snug break-words">{flyer.title}</h4>
+        {!Number.isNaN(flyer.date.getTime()) && <p className="text-xs text-sae-muted mt-1">Adicionado {timeAgo(flyer.date)}</p>}
+        <div className="flex gap-2 mt-4">{actionsOf(flyer)}</div>
+        {mayManage && (
+          <div className="mt-2">
+            {confirmingId === flyer.id ? (
+              <div className="flex items-center gap-2 text-xs">
+                <span className="text-sae-muted">Excluir este flyer?</span>
+                <Button size="sm" variant="secondary" className="text-xs" onClick={() => handleDelete(flyer)} disabled={busyId === flyer.id}>
+                  {busyId === flyer.id ? 'Excluindo...' : 'Sim, excluir'}
+                </Button>
+                <Button size="sm" variant="ghost" className="text-xs" onClick={() => setConfirmingId(null)} disabled={busyId === flyer.id}>
+                  Cancelar
+                </Button>
+              </div>
+            ) : (
+              <button type="button" onClick={() => setConfirmingId(flyer.id)} className="flex items-center gap-1.5 text-xs text-sae-muted hover:text-sae-danger transition-colors">
+                <Trash2 size={14} /> Excluir
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </Card>
+  );
 
   const actionsOf = (flyer: Flyer, size: 'sm' | 'md' = 'sm') => (
     <>
@@ -308,15 +439,63 @@ export const Flyers: React.FC = () => {
               <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} /> Atualizar
             </button>
             {mayManage && (
-              <Button onClick={() => setComposerOpen(true)} disabled={!canAdd} title={canAdd ? undefined : 'O envio ainda não foi configurado ou você precisa entrar de novo no SAE.'}>
-                <Plus size={16} className="mr-2" /> Adicionar flyer
+              <Button onClick={() => setComposerOpen(true)} disabled={!canAdd}>
+                <Plus size={16} className="mr-2" /> {recovering ? 'Verificando acesso...' : 'Adicionar flyer'}
               </Button>
             )}
           </div>
         </div>
 
+        {!loading && !loadError && flyers.length > 0 && (
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-3 mb-8">
+            <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Filtrar por tipo">
+              <span className="text-sm font-semibold text-sae-muted">Tipo</span>
+              {[{ name: '', count: flyers.filter((flyer) => matches(flyer, 'type')).length }, ...typeOptions].map((option) => (
+                <button
+                  key={option.name || 'todas'}
+                  type="button"
+                  onClick={() => setTypeFilter(option.name)}
+                  aria-pressed={typeFilter === option.name}
+                  className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors ${
+                    typeFilter === option.name ? 'bg-sae-accent text-white border-sae-accent' : 'bg-sae-card text-sae-text border-sae-border hover:border-sae-accent'
+                  }`}
+                >
+                  {option.name || 'Todas'} <span className={typeFilter === option.name ? 'opacity-80 font-normal' : 'text-sae-muted font-normal'}>({option.count})</span>
+                </button>
+              ))}
+            </div>
+            <label className="flex items-center gap-2 text-sm font-semibold text-sae-muted">
+              Área
+              <select value={areaFilter} onChange={(event) => setAreaFilter(event.target.value)} className="bg-sae-darker border border-sae-border rounded-lg px-3 py-1.5 text-sm font-normal text-sae-text focus:border-sae-accent outline-none max-w-[16rem]">
+                <option value="">Todas ({flyers.filter((flyer) => matches(flyer, 'area')).length})</option>
+                {areaOptions.map((option) => (
+                  <option key={option.name} value={option.name}>
+                    {option.name} ({option.count})
+                  </option>
+                ))}
+              </select>
+            </label>
+            {filtering && (
+              <button type="button" onClick={clearFilters} className="flex items-center gap-1 text-sm text-sae-accentText hover:text-sae-accentHover transition-colors">
+                <X size={14} /> Limpar filtros
+              </button>
+            )}
+          </div>
+        )}
+
+        {blockedReason && (
+          <div role="alert" className="flex flex-wrap items-center gap-3 mb-4 text-sm text-sae-muted">
+            <span>{blockedReason}</span>
+            {FEED_SCRIPT_URL && (
+              <Button size="sm" variant="outline" onClick={signInAgain}>
+                Sair e entrar de novo
+              </Button>
+            )}
+          </div>
+        )}
+
         <div aria-live="polite">
-          {message && <p className="text-sm text-sae-muted mb-4">{message}</p>}
+          {message &&<p className="text-sm text-sae-muted mb-4">{message}</p>}
           {problem && (
             <p role="alert" className="text-sm text-sae-danger mb-4">
               {problem}
@@ -339,46 +518,32 @@ export const Flyers: React.FC = () => {
             <p className="text-sae-muted mt-1 max-w-md mx-auto">{mayManage ? 'Use "Adicionar flyer" para enviar o primeiro.' : 'Quando a equipe administrativa adicionar flyers, eles aparecem aqui.'}</p>
           </Card>
         ) : shown.length === 0 ? (
-          <p className="text-sae-muted py-8 text-center">Nenhum flyer encontrado para essa busca.</p>
+          <p className="text-sae-muted py-8 text-center">Nenhum flyer encontrado com esses filtros.</p>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {shown.map((flyer) => (
-              <Card key={flyer.id} className="flex flex-col hover:border-sae-accent/50 transition-all duration-300">
-                <button type="button" onClick={() => setPreview(flyer)} aria-label={`Ampliar: ${flyer.title}`} className="block w-full aspect-square bg-sae-soft overflow-hidden">
-                  <FlyerImage flyer={flyer} width={600} className="w-full h-full object-contain" />
-                </button>
-                <div className="p-4 flex flex-col flex-1">
-                  <h3 className="font-bold text-sae-text leading-snug break-words">{flyer.title}</h3>
-                  {!Number.isNaN(flyer.date.getTime()) && <p className="text-xs text-sae-muted mt-1">Adicionado {timeAgo(flyer.date)}</p>}
-                  <div className="flex gap-2 mt-4">{actionsOf(flyer)}</div>
-                  {mayManage && (
-                    <div className="mt-2">
-                      {confirmingId === flyer.id ? (
-                        <div className="flex items-center gap-2 text-xs">
-                          <span className="text-sae-muted">Excluir este flyer?</span>
-                          <Button size="sm" variant="secondary" className="text-xs" onClick={() => handleDelete(flyer)} disabled={busyId === flyer.id}>
-                            {busyId === flyer.id ? 'Excluindo...' : 'Sim, excluir'}
-                          </Button>
-                          <Button size="sm" variant="ghost" className="text-xs" onClick={() => setConfirmingId(null)} disabled={busyId === flyer.id}>
-                            Cancelar
-                          </Button>
-                        </div>
-                      ) : (
-                        <button type="button" onClick={() => setConfirmingId(flyer.id)} className="flex items-center gap-1.5 text-xs text-sae-muted hover:text-sae-danger transition-colors">
-                          <Trash2 size={14} /> Excluir
-                        </button>
-                      )}
+          <div className="space-y-12">
+            {sections.map(({ type, areas }) => (
+              <section key={type} aria-labelledby={`flyers-${foldText(type).replace(/\W+/g, '-')}`}>
+                <h2 id={`flyers-${foldText(type).replace(/\W+/g, '-')}`} className="text-2xl font-heading font-bold text-sae-text border-b border-sae-border pb-3 mb-6">
+                  {type} <span className="text-base font-semibold text-sae-muted">({areas.reduce((sum, group) => sum + group.items.length, 0)})</span>
+                </h2>
+                <div className="space-y-8">
+                  {areas.map(({ area, items }) => (
+                    <div key={area}>
+                      <h3 className="text-sm font-bold text-sae-accentText uppercase tracking-wide mb-3">
+                        {area} <span className="text-sae-muted font-normal normal-case">({items.length})</span>
+                      </h3>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">{items.map(renderCard)}</div>
                     </div>
-                  )}
+                  ))}
                 </div>
-              </Card>
+              </section>
             ))}
           </div>
         )}
       </div>
 
       <FlyerPreview flyer={preview} onClose={closePreview} actions={preview ? actionsOf(preview, 'md') : null} />
-      {mayManage && <FlyerComposer open={composerOpen} onClose={closeComposer} onCreated={refresh} user={{ login: userLogin, name: userName }} />}
+      {mayManage && <FlyerComposer open={composerOpen} onClose={closeComposer} onCreated={refresh} user={{ login: userLogin, name: userName }} defaults={{ type: typeFilter, area: areaFilter }} />}
     </Layout>
   );
 };

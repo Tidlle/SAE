@@ -5,6 +5,7 @@ import { answerForm, answerInstitution, answerStudy, answerVideo, wantsForm, wan
 import { answerCompare, answerList, answerMore, wantsCompare, wantsList } from './lists';
 import { answerConsult, answerConsultClick, answerObjection, continueConsult, wantsConsult } from './consult';
 import { findObjection, wantsObjectionMenu } from './objections';
+import { withCoach } from './coach';
 import { answerClass, answerContact, answerOrigin, answerSimulator, wantsClass, wantsContact, wantsSimulator } from './extras';
 import { Answer, Block, Chip, Context, EMPTY_CONTEXT, IES_WORDS, Intent, Pay, Reply, STOP, displayName, passesFilters, rank, set, shortName, splitCourseTokens, textReply } from './shared';
 import type { CourseFilters } from './shared';
@@ -403,7 +404,11 @@ const chooseCourses = (catalog: Catalog, tokens: string[], filters: CourseFilter
   return { ranked, note };
 };
 
-export const answerQuestion = (catalog: Catalog, question: string, ctx: Context = EMPTY_CONTEXT, agenda: Agenda | null = null): Answer => {
+// Responde e, nas respostas de venda, acrescenta a pergunta de condução para o consultor (lib/assistant/coach.ts)
+export const answerQuestion = (catalog: Catalog, question: string, ctx: Context = EMPTY_CONTEXT, agenda: Agenda | null = null): Answer =>
+  withCoach(catalog, answerCore(catalog, question, ctx, agenda));
+
+const answerCore = (catalog: Catalog, question: string, ctx: Context, agenda: Agenda | null): Answer => {
   const query = question.trim();
 
   // Cliques nos botões da resposta anterior

@@ -1,11 +1,21 @@
 import { HOME_SHEET_ID, cell, fetchSheet } from './sheets';
 import { callScript } from './feed';
 import type { CompressOptions } from './images';
+import { AREA_LABEL, foldText } from './courses';
 
 // Flyers: imagens de divulgação. O Administrativo adiciona e exclui; os demais perfis só baixam e compartilham.
 // Ficam na aba `Flyers` da mesma planilha do feed; os arquivos ficam no Drive (enviados pelo Apps Script, apps-script/feed.gs).
+// Cada flyer tem um tipo (graduação, pós-graduação, capacitação ou cursos de estética) e uma área, que organizam a página e alimentam os filtros.
 
 export const FLYER_LIMITS = { title: 80 } as const;
+// Tipos de flyer e as áreas do catálogo de cursos (AREA_LABEL). O Apps Script confere os mesmos valores (FLYER_TYPES e AREAS).
+export const FLYER_TYPES = ['Graduação', 'Pós-graduação', 'Capacitação', 'Cursos de estética'] as const;
+export const FLYER_AREAS: string[] = Object.values(AREA_LABEL);
+export const NO_TYPE = 'Sem tipo';
+export const NO_AREA = 'Sem área';
+
+// Valor da planilha -> grafia oficial da lista (ignora maiúsculas e acentos); '' quando não é de nenhuma.
+const canonical = (value: string, options: readonly string[]): string => options.find((option) => foldText(option) === foldText(value)) ?? '';
 // Flyers mantêm mais qualidade que as imagens do feed (lado maior de 2000px, até 1,8 MB)
 export const FLYER_IMAGE: CompressOptions = { maxSide: 2000, maxBytes: 1800 * 1024 };
 
@@ -16,12 +26,14 @@ export interface Flyer {
   author: string;
   title: string;
   image: string; // ID do arquivo no Drive
+  type: string; // um de FLYER_TYPES, ou '' nos flyers de antes dessa classificação (inclusive os que tinham modalidade)
+  area: string; // uma de FLYER_AREAS, ou ''
 }
 
-// Colunas da aba Flyers: id | data | login | autor | titulo | imagem | status
+// Colunas da aba Flyers: id | data | login | autor | titulo | imagem | status | tipo | area (a coluna H guardava a modalidade; esses valores antigos viram "Sem tipo")
 export const loadFlyers = async (): Promise<Flyer[]> => {
   if (!HOME_SHEET_ID) return [];
-  const rows = await fetchSheet('Flyers!A2:G', HOME_SHEET_ID);
+  const rows = await fetchSheet('Flyers!A2:I', HOME_SHEET_ID);
   return rows
     .map((row) => ({
       id: cell(row, 0),
@@ -31,14 +43,31 @@ export const loadFlyers = async (): Promise<Flyer[]> => {
       title: cell(row, 4),
       image: cell(row, 5),
       status: cell(row, 6).toUpperCase(),
+      type: canonical(cell(row, 7), FLYER_TYPES),
+      area: canonical(cell(row, 8), FLYER_AREAS),
     }))
     .filter((flyer) => flyer.id && /^[\w-]{10,}$/.test(flyer.image) && flyer.status !== 'REMOVIDO')
     .map(({ status, ...flyer }) => flyer)
     .sort((a, b) => (b.date.getTime() || 0) - (a.date.getTime() || 0));
 };
 
-export const createFlyer = async (title: string, imageDataUrl: string, user: { login: string; name: string }): Promise<void> => {
-  await callScript({ action: 'createFlyer', login: user.login, author: user.name, title: title.trim(), image0: imageDataUrl });
+export interface NewFlyerInput {
+  title: string;
+  type: string;
+  area: string;
+  image: string; // data URL
+}
+
+export const createFlyer = async (input: NewFlyerInput, user: { login: string; name: string }): Promise<void> => {
+  await callScript({
+    action: 'createFlyer',
+    login: user.login,
+    author: user.name,
+    title: input.title.trim(),
+    tipo: input.type,
+    area: input.area,
+    image0: input.image,
+  });
 };
 
 export const deleteFlyer = async (id: string, login: string): Promise<void> => {

@@ -7,7 +7,7 @@ import type { LeadPatch } from './shared';
 // valida cada um e o motor confere de novo contra as opções reais da planilha. Sem a IA configurada, o assistente pede para tocar numa opção.
 
 const ENUMS: Record<string, string[]> = {
-  degree: ['sim', 'nao'],
+  degree: ['sim', 'nao', 'cursando'],
   modality: ['ead', 'semi', 'presencial', 'any'],
   urgency: ['now', 'later'],
 };
@@ -17,11 +17,11 @@ export const cleanPatch = (raw: unknown): LeadPatch => {
   const source = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
   const patch: LeadPatch = {};
   const text = (value: unknown, max: number): string => (typeof value === 'string' ? value.trim().slice(0, max) : '');
-  if (typeof source.degree === 'string' && ENUMS.degree.includes(source.degree)) patch.degree = source.degree as 'sim' | 'nao';
+  if (typeof source.degree === 'string' && ENUMS.degree.includes(source.degree)) patch.degree = source.degree as 'sim' | 'nao' | 'cursando';
   if (typeof source.modality === 'string' && ENUMS.modality.includes(source.modality)) patch.modality = source.modality;
   if (typeof source.urgency === 'string' && ENUMS.urgency.includes(source.urgency)) patch.urgency = source.urgency as 'now' | 'later';
   if (typeof source.budget === 'number' && Number.isFinite(source.budget) && source.budget >= 30 && source.budget <= 20000) patch.budget = Math.round(source.budget);
-  (['tipo', 'area', 'ies', 'objective', 'polo'] as const).forEach((key) => {
+  (['tipo', 'area', 'ies', 'objective', 'polo', 'motivation', 'barrier'] as const).forEach((key) => {
     const value = text(source[key], 60);
     if (value) patch[key] = value;
   });

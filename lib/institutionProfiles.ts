@@ -40,7 +40,7 @@ const ITEQ: InstitutionProfile = {
   tagline: 'Conectamos pessoas a faculdades e cursos alinhados às suas metas de carreira.',
   tradition: '',
   location: 'São Paulo (SP)',
-  address: 'Rua Lagoa Tái Grande, 91, São Paulo (SP), CEP 08290-500',
+  address: 'Rua Lagoa Taí Grande, 91, Itaquera, São Paulo (SP), CEP 08290-500',
   modalities: ['Presencial', 'Semipresencial', 'EAD'],
   stats: [
     { value: '+80 mil', label: 'alunos orientados' },
@@ -143,7 +143,7 @@ const ALPHA: InstitutionProfile = {
   tagline: 'Transformando conhecimento em carreiras de sucesso.',
   tradition: 'Desde 2001',
   location: 'Itaquera, São Paulo (SP)',
-  address: 'Rua Lagoa Tái Grande, 91, Itaquera, São Paulo (SP), CEP 08290-500',
+  address: 'Rua Lagoa Taí Grande, 91, Itaquera, São Paulo (SP), CEP 08290-500',
   modalities: ['Presencial'],
   stats: [
     { value: '2001', label: 'ano de fundação' },

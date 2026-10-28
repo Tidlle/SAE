@@ -2,11 +2,11 @@ import React from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Layout } from '../components/Layout';
 import { Button, SectionTitle, Card, Badge, Breadcrumb } from '../components/UI';
-import { Search, Filter, Calendar, MapPin, Clock, CheckCircle, SlidersHorizontal, ChevronRight, Star, GraduationCap, BookOpen, Copy, Info } from 'lucide-react';
+import { Search, Filter, Calendar, MapPin, Clock, CheckCircle, SlidersHorizontal, ChevronRight, Star, GraduationCap, BookOpen, Copy, Info, FileText } from 'lucide-react';
 import { Chatbot } from '../components/Chatbot';
 import { CopyButton } from '../components/CopyButton';
 import { fetchSheet } from '../lib/sheets';
-import { FACET_GROUPS, Facet, FacetGroup, areaLabelOf, buildFacet, facetKey, findColumn, formatCurrency, normalizeText, parseCurrency, safeHttpUrl, splitList } from '../lib/courses';
+import { FACET_GROUPS, Facet, FacetGroup, areaLabelOf, buildFacet, facetKey, findColumn, findInformativo, informativoCandidates, formatCurrency, normalizeText, parseCurrency, safeHttpUrl, splitList } from '../lib/courses';
 import { CoursesOverview } from '../components/CoursesOverview';
 import { RecentCourse, clearRecents, loadRecents, saveRecent } from '../lib/recentCourses';
 import { highlightMatch } from '../lib/text';
@@ -882,6 +882,8 @@ export const CoursesInfo: React.FC = () => {
 export const CoursesPresencial: React.FC = () => {
   const [data, setData] = React.useState<any[]>([]);
   const [loading, setLoading] = React.useState(true);
+  // Informativos da aba Cursos (a aba Cursos-Presenciais não tem esse link); sem eles, o card só não mostra o link
+  const [informativos, setInformativos] = React.useState<ReturnType<typeof informativoCandidates>>([]);
   
   // Filter States
   const [filters, setFilters] = React.useState({
@@ -895,7 +897,7 @@ export const CoursesPresencial: React.FC = () => {
   // Constants
   const SHEET_ID = '1JZLbofayEZKDkc68ItsJWDfM02BxNpgdbsUHr-LZMJI';
   const API_KEY = 'AIzaSyCBqdUJmSzfv0bT2g1vM8MJuAl6kWF4gE0';
-  const RANGE = 'Cursos-Presenciais!A2:AB'; // Fetching data
+  const RANGE = 'Cursos-Presenciais!A2:AC'; // Fetching data (a coluna AC, opcional, traz o link do informativo)
 
   // Column Indices
   const COLUMNS = {
@@ -911,7 +913,8 @@ export const CoursesPresencial: React.FC = () => {
     SITUACAO: 23,     // X
     CRONOGRAMA: 25,   // Z
     CALENDARIO: 26,   // AA
-    OBSERVACAO: 27    // AB
+    OBSERVACAO: 27,   // AB
+    INFORMATIVO: 28   // AC (opcional)
   };
 
   // Fetch Data
@@ -931,6 +934,14 @@ export const CoursesPresencial: React.FC = () => {
       }
     };
     fetchData();
+    fetchSheet('Cursos!A1:AJ')
+      .then((values) => {
+        const headers = (values[0] ?? []).map((header) => (header ?? '').toString());
+        const nameIndex = Math.max(0, findColumn(headers, /^Nome d/i));
+        const linkIndex = findColumn(headers, /^Informativo/i);
+        if (linkIndex !== -1) setInformativos(informativoCandidates(values.slice(1), nameIndex, linkIndex));
+      })
+      .catch(() => undefined);
   }, []);
 
   // Filter Logic
@@ -1047,6 +1058,8 @@ export const CoursesPresencial: React.FC = () => {
            <div className="lg:col-span-1 space-y-6">
              <Card className="p-6 sticky top-24 bg-sae-darker border-sae-accent/20">
                <div className="space-y-4">
+                 <Button variant="outline" className="w-full" onClick={clearFilters}>Limpar</Button>
+
                  {/* Tipo */}
                  <div>
                    <label className="block text-sm font-medium text-sae-muted mb-1">Tipo</label>
@@ -1115,10 +1128,6 @@ export const CoursesPresencial: React.FC = () => {
                      {options.turmaOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
                    </select>
                  </div>
-
-                 <div className="pt-4 flex gap-2">
-                   <Button variant="outline" className="w-full" onClick={clearFilters}>Limpar</Button>
-                 </div>
                </div>
              </Card>
            </div>
@@ -1143,6 +1152,8 @@ export const CoursesPresencial: React.FC = () => {
                      const dataInicio = row[COLUMNS.DATA_INICIO];
                      const situacao = row[COLUMNS.SITUACAO];
                      const observacao = row[COLUMNS.OBSERVACAO];
+                     // O link escrito na própria linha (coluna AC) vale primeiro; senão, o do mesmo curso na aba Cursos
+                     const informativo = safeHttpUrl(row[COLUMNS.INFORMATIVO]) || findInformativo(informativos, nome, tipo, row[COLUMNS.POLO]);
 
                      // Logic for button visibility
                      // Calendário: Enabled/Visible ONLY if Tipo is "Licenciatura", "Bacharelado", "Tecnológico" or "UNICV"
@@ -1170,6 +1181,11 @@ export const CoursesPresencial: React.FC = () => {
                                 {showCalendario && (
                                   <a href={calendario} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 hover:underline">
                                     <Clock size={16}/> Calendário
+                                  </a>
+                                )}
+                                {informativo && (
+                                  <a href={informativo} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 hover:underline">
+                                    <FileText size={16}/> Informativo do curso
                                   </a>
                                 )}
                              </div>

@@ -15,7 +15,9 @@ export type Block =
   | { type: 'table'; columns: string[]; rows: string[][] }
   | { type: 'facts'; items: [string, string][] }
   | { type: 'list'; title: string; items: string[] }
-  | { type: 'links'; items: { label: string; href: string }[] };
+  | { type: 'links'; items: { label: string; href: string }[] }
+  // anotação interna para o consultor (pergunta de condução ou aviso): não vai no "Copiar resposta"
+  | { type: 'coach'; stage: string; question: string; tip?: string; note?: boolean };
 
 export interface Reply {
   tag: string; // para estatística: só o tipo da resposta, nunca o texto da pergunta
@@ -25,7 +27,8 @@ export interface Reply {
 }
 
 // Atendimento consultivo (lib/assistant/consult.ts): o que o assistente já descobriu sobre o aluno do vendedor.
-export type LeadStep = 'degree' | 'goal' | 'formation' | 'origin' | 'area' | 'theme' | 'modality' | 'polo' | 'budget' | 'urgency' | 'objective';
+export type LeadStep = 'degree' | 'goal' | 'formation' | 'origin' | 'area' | 'theme' | 'modality' | 'polo' | 'budget' | 'urgency' | 'motivation' | 'objective' | 'barrier'
+  | 'transferCourse' | 'transferStage' | 'transferReason' | 'interest';
 
 export interface LeadArea {
   label: string;
@@ -36,7 +39,7 @@ export interface LeadArea {
 export interface Lead {
   asked: LeadStep | ''; // pergunta que está esperando resposta
   questions: number; // perguntas já respondidas
-  degree: '' | 'sim' | 'nao'; // o aluno já tem graduação?
+  degree: '' | 'sim' | 'nao' | 'cursando'; // o aluno já tem graduação? ('cursando' = está numa graduação e quer se transferir)
   tipoKey: string; // escolha de tipo de curso (chave de TIPO_CHOICES)
   tipos: string[] | null; // tipos aceitos (filtro de tipo do motor); null = ainda não definido, [] = qualquer
   area: LeadArea | 'any' | null; // null = ainda não definido
@@ -50,13 +53,19 @@ export interface Lead {
   polo: string | null; // polo presencial; '' = qualquer
   urgency: 'now' | 'later' | null; // quer começar logo?
   objective: string | null; // objetivo do aluno (carreira, mudar, exigencia, diploma); '' = não sabe
+  motivation: string | null; // o que motiva a busca agora (gatilho); '' = não sabe
+  barrier: string | null; // o que pode impedir de começar; '' = não sabe
+  journey: '' | 'indeciso'; // 'indeciso' = o aluno ainda não sabe que curso escolher
+  transfer: { course: string; stage: string; reason: string } | null; // transferência: curso atual, ponto em que está e motivo
   outcome: '' | 'won' | 'lost'; // como terminou o atendimento
   lostReason: string; // id da objeção (ou 'outro') quando a venda não fechou
 }
 
 // Dados que a IA (ou o texto livre) pode preencher no atendimento; cada campo é validado antes de valer.
 export interface LeadPatch {
-  degree?: 'sim' | 'nao';
+  degree?: 'sim' | 'nao' | 'cursando';
+  motivation?: string;
+  barrier?: string;
   tipo?: string;
   area?: string;
   modality?: string;

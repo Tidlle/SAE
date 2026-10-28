@@ -93,6 +93,15 @@ const BlockView: React.FC<{ block: Block }> = ({ block }) => {
         </div>
       );
 
+    case 'coach':
+      return (
+        <div className="rounded-lg border-l-4 border-sae-accent bg-sae-accentSoft px-3 py-2">
+          <p className="text-[11px] font-bold uppercase tracking-wide text-sae-accentText">{block.note ? block.stage : `${block.stage} · pergunta para fazer ao aluno`}</p>
+          <p className="text-sm font-semibold text-sae-text mt-0.5">{block.question}</p>
+          {block.tip && <p className="text-xs text-sae-muted mt-1">{block.tip}</p>}
+        </div>
+      );
+
     case 'links':
       return (
         <div className="flex flex-wrap gap-2">

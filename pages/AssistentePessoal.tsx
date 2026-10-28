@@ -104,6 +104,7 @@ export const AssistentePessoal: React.FC = () => {
     return () => clearTimeout(saveTimer.current);
   }, [messages, persistNow]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async (force = false) => {
@@ -123,11 +124,13 @@ export const AssistentePessoal: React.FC = () => {
   }, [load]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    // Sem mensagens (tela de boas-vindas) a área fica no topo; só com mensagens ela desce até a última
+    if (messages.length === 0) scrollAreaRef.current?.scrollTo({ top: 0 });
+    else messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
   useEffect(() => {
-    inputRef.current?.focus();
+    inputRef.current?.focus({ preventScroll: true });
   }, []);
 
   // `shown` é o que aparece como fala da pessoa; `query` é o que o motor recebe (os botões usam um código interno).
@@ -138,7 +141,7 @@ export const AssistentePessoal: React.FC = () => {
     const userMessage: Message = { id: `${now}-u`, role: 'user', text: shown.trim(), timestamp: new Date(now) };
     const answer = answerQuestion(catalog, trimmed, ctx, agenda);
     setInput('');
-    inputRef.current?.focus();
+    inputRef.current?.focus({ preventScroll: true });
 
     // O calendário de aulas é lido do Google Agenda sob demanda: mostra "consultando" e responde quando chegar
     if (answer.needs === 'agenda') {
@@ -245,7 +248,7 @@ export const AssistentePessoal: React.FC = () => {
     }
     setInput('');
     setHistoryOpen(false);
-    inputRef.current?.focus();
+    inputRef.current?.focus({ preventScroll: true });
   };
 
   const handleNewConversation = () => {
@@ -383,7 +386,7 @@ export const AssistentePessoal: React.FC = () => {
           </div>
 
           {/* Messages */}
-          <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
+          <div ref={scrollAreaRef} className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
             {messages.length === 0 && (
               <div className="flex flex-col items-center justify-center text-center py-10 animate-fadeIn">
                 <div className="w-20 h-20 rounded-full bg-sae-accent/10 flex items-center justify-center mb-6 border border-sae-accent/30">

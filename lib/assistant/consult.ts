@@ -9,7 +9,7 @@ import { Answer, Block, Chip, Context, IES_WORDS, Lead, LeadArea, LeadPatch, Lea
 // modalidade, parcela...) e só então recomenda. As perguntas e os filtros usam a planilha e nunca inventam valor.
 // O texto livre é entendido por regras; quando elas não bastam, a página pode pedir ajuda à IA (lib/assistant/interpret.ts).
 
-const MAX_QUESTIONS = 8; // perguntas respondidas antes de recomendar de qualquer jeito
+const MAX_QUESTIONS = 10; // perguntas respondidas antes de recomendar de qualquer jeito
 const TOP = 3; // opções recomendadas
 
 // Ordem de preferência entre instituições na recomendação (uma regra comercial). Vazia = sem preferência.
@@ -35,6 +35,7 @@ const SHORT_TIPOS = ['capacitacao', 'extensao', 'aperfeicoamento', 'atualizacao'
 const TIPO_CHOICES: Record<string, { tipos: string[]; label: string }> = {
   pos: { tipos: ['pos'], label: 'Pós-graduação' },
   segunda: { tipos: ['graduacao'], label: 'Segunda graduação' },
+  transferencia: { tipos: ['graduacao'], label: 'Transferência' },
   graduacao: { tipos: ['graduacao'], label: 'Graduação' },
   licenciatura: { tipos: ['licenciatura'], label: 'Licenciatura' },
   bacharel: { tipos: ['bacharel'], label: 'Bacharelado' },
@@ -44,12 +45,58 @@ const TIPO_CHOICES: Record<string, { tipos: string[]; label: string }> = {
 
 const MODALITY_LABEL: Record<string, string> = { ead: 'EAD', semi: 'Semipresencial', presencial: 'Presencial' };
 
-const OBJECTIVE_LABEL: Record<string, string> = {
-  carreira: 'crescer na carreira',
-  mudar: 'mudar de área',
-  exigencia: 'exigência do emprego ou concurso',
+// Objetivo: o resultado que o aluno quer (o que a formação deve mudar na vida profissional dele)
+export const OBJECTIVE_LABEL: Record<string, string> = {
+  carreira: 'crescer na área onde já atua',
+  mudar: 'abrir uma nova possibilidade profissional',
+  concurso: 'prestar concurso',
+  comecar: 'começar uma profissão',
   diploma: 'completar a formação',
+  exigencia: 'cumprir uma exigência do emprego',
+  atualizar: 'se atualizar na área',
+  complementar: 'complementar a formação',
 };
+
+// Opções de objetivo por tipo de curso (graduação, pós-graduação e cursos rápidos têm objetivos diferentes)
+const objectiveOptions = (lead: Lead): string[] =>
+  lead.tipoKey === 'curta' ? ['atualizar', 'complementar', 'mudar', 'exigencia'] : lead.tipoKey === 'pos' ? ['carreira', 'mudar', 'concurso', 'exigencia'] : ['comecar', 'carreira', 'mudar', 'concurso', 'diploma'];
+
+// Motivação: o que leva o aluno a buscar isso agora (o gatilho)
+const MOTIVATION_LABEL: Record<string, string> = {
+  oportunidade: 'surgiu uma oportunidade (vaga, promoção ou concurso)',
+  exigencia: 'exigência da empresa ou da lei',
+  insatisfacao: 'quer mudar a situação atual',
+  pessoal: 'realização pessoal',
+};
+
+// Barreira: o que pode impedir de começar, e a objeção para se preparar
+const BARRIER_LABEL: Record<string, string> = {
+  valor: 'o valor',
+  tempo: 'tempo e rotina',
+  familia: 'decisão em família',
+  duvida: 'dúvida sobre o curso ou a instituição',
+  nenhuma: 'nenhuma (já está decidido)',
+};
+const BARRIER_OBJECTION: Record<string, string> = { valor: 'caro', tempo: 'tempo', familia: 'familia', duvida: 'confianca' };
+
+// Transferência
+const TRANSFER_STAGE: Record<string, string> = { inicio: 'começou há pouco', meio: 'está no meio do curso', fim: 'está perto de terminar' };
+const TRANSFER_REASON: Record<string, string> = { valor: 'valor', estrutura: 'estrutura ou qualidade', horario: 'horário ou modalidade', cidade: 'mudança de cidade', outro: 'outro motivo' };
+
+// Quem ainda não sabe o curso: interesse -> grande área
+const INTERESTS: [string, string][] = [
+  ['educacao', 'Pessoas e ensino'],
+  ['saude', 'Cuidar da saúde e do bem-estar'],
+  ['negocios', 'Negócios, gestão e leis'],
+  ['ti', 'Tecnologia'],
+  ['artes', 'Criatividade e arte'],
+  ['engenharia', 'Construir e produzir'],
+];
+
+// "essa pós-graduação", "esse curso", "essa graduação": o texto das perguntas acompanha o tipo escolhido
+const nounOf = (lead: Lead): string => (lead.tipoKey === 'pos' ? 'essa pós-graduação' : lead.tipoKey === 'curta' ? 'esse curso' : 'essa graduação');
+
+const unset = (value: unknown): boolean => value === null || value === undefined;
 
 // Palavra digitada que é o nome de uma grande área
 const AREA_WORDS: Record<string, string> = { educacao: 'educacao', saude: 'saude', negocios: 'negocios', engenharia: 'engenharia', computacao: 'ti', tecnologia: 'ti', ti: 'ti', artes: 'artes', humanidades: 'artes' };
@@ -76,6 +123,20 @@ export const monthlyOf = (course: Course): number | null => {
   const total = course.parcelado ?? basePrice(course);
   if (total === null) return null;
   return Math.ceil(total / (installmentsOf(course) ?? 1));
+};
+
+// Condição comercial no formato da empresa: "inscrição de R$ X + N parcelas de R$ Y", sem somar o total. A UNICIVE traz a parcela
+// pronta; nos demais, a parcela é calculada (valor parcelado no boleto ÷ parcelas) e precisa ser conferida com o Financeiro.
+export const conditionText = (course: Course): string => {
+  const plural = (n: number) => `${n} ${n === 1 ? 'parcela' : 'parcelas'}`;
+  if (course.unicive?.installments && course.unicive.installment !== null) {
+    const fee = course.unicive.fee;
+    return `${fee !== null ? `inscrição de ${money(fee)} + ` : ''}${plural(course.unicive.installments)} de ${money(course.unicive.installment)}`;
+  }
+  const parcels = course.parcelasBoleto;
+  const base = course.parcelado ?? basePrice(course);
+  if (!parcels || base === null) return '';
+  return `${course.fee !== null ? `inscrição de ${money(course.fee)} + ` : ''}${plural(parcels)} de ${money(Math.ceil(base / parcels))}`;
 };
 
 // Duração em meses, só para ordenar. A planilha mistura unidades ("4 Semestres", "12 meses", "Mínimo 4, Máximo 6").
@@ -142,6 +203,10 @@ const newLead = (): Lead => ({
   polo: null,
   urgency: null,
   objective: null,
+  motivation: null,
+  barrier: null,
+  journey: '',
+  transfer: null,
   outcome: '',
   lostReason: '',
 });
@@ -160,6 +225,8 @@ export const profileLine = (lead: Lead): string => {
     lead.polo ? `polo ${lead.polo}` : '',
     typeof lead.budget === 'number' ? `parcela até ${money(lead.budget)}` : '',
     lead.urgency === 'now' ? 'quer começar logo' : '',
+    lead.transfer?.course && lead.transfer.course !== '-' ? `cursando ${lead.transfer.course}` : '',
+    lead.journey === 'indeciso' ? 'ainda escolhendo o curso' : '',
     lead.objective ? `objetivo: ${OBJECTIVE_LABEL[lead.objective] ?? lead.objective}` : '',
   ].filter(Boolean);
   return parts.join(' · ');
@@ -225,16 +292,31 @@ const poloCounts = (catalog: Catalog): { label: string; open: number }[] => {
   return [...polos.entries()].map(([label, open]) => ({ label, open }));
 };
 
-const nextStep = (catalog: Catalog, lead: Lead, pool: Course[]): LeadStep | null => {
-  if (lead.tipos === null) return lead.degree === 'sim' ? 'goal' : lead.degree === 'nao' ? 'formation' : 'degree';
-  if (lead.tipoKey === 'segunda' && lead.origin === null && catalog.simulator.length > 0) return 'origin';
-  if (lead.area === null && new Set(pool.map((course) => areaGroupOf(course.eixo))).size > 1) return 'area';
-  if (!lead.themed && pool.length > 12 && themeOptions(pool, lead).length >= 2) return 'theme';
-  if (lead.modality === null && new Set(pool.map(modalityOf)).size > 1) return 'modality';
-  if (lead.polo === null && (lead.modality === 'presencial' || lead.modality === 'semi') && poloCounts(catalog).length > 1) return 'polo';
-  if (lead.budget === null && budgetSteps(pool).length > 0) return 'budget';
-  if (lead.urgency === null) return 'urgency';
-  if (lead.objective === null) return 'objective';
+// Perguntas de diagnóstico (motivação, objetivo e barreira): não filtram os cursos, mas são feitas sempre, mesmo quando já sobraram
+// poucas opções, porque é com elas que o consultor conduz a venda. "Pular e ver opções" as dispensa.
+const nextStep = (catalog: Catalog, lead: Lead, pool: Course[], onlyDiagnostic = false): LeadStep | null => {
+  if (!onlyDiagnostic) {
+    if (lead.tipos === null) {
+      if (lead.degree === 'cursando') {
+        if (!lead.transfer?.course) return 'transferCourse';
+        if (!lead.transfer.stage) return 'transferStage';
+        if (!lead.transfer.reason) return 'transferReason';
+        return 'formation';
+      }
+      return lead.degree === 'sim' ? 'goal' : lead.degree === 'nao' ? 'formation' : 'degree';
+    }
+    if (lead.tipoKey === 'segunda' && lead.origin === null && catalog.simulator.length > 0) return 'origin';
+    if (lead.journey === 'indeciso' && lead.area === null) return 'interest';
+    if (lead.area === null && new Set(pool.map((course) => areaGroupOf(course.eixo))).size > 1) return 'area';
+    if (!lead.themed && pool.length > 12 && themeOptions(pool, lead).length >= 2) return 'theme';
+    if (lead.modality === null && new Set(pool.map(modalityOf)).size > 1) return 'modality';
+    if (lead.polo === null && (lead.modality === 'presencial' || lead.modality === 'semi') && poloCounts(catalog).length > 1) return 'polo';
+    if (lead.budget === null && budgetSteps(pool).length > 0) return 'budget';
+    if (lead.urgency === null) return 'urgency';
+  }
+  if (unset(lead.motivation)) return 'motivation';
+  if (unset(lead.objective)) return 'objective';
+  if (unset(lead.barrier)) return 'barrier';
   return null;
 };
 
@@ -247,7 +329,7 @@ const ask = (catalog: Catalog, lead: Lead, ctx: Context, step: LeadStep, preface
 
   if (step === 'degree') {
     text = 'Para indicar o curso certo, preciso entender o aluno. Ele já tem graduação (curso superior completo)?';
-    chips.push(chip('Sim, já é graduado', 'degree:sim'), chip('Não, ainda não', 'degree:nao'));
+    chips.push(chip('Sim, já é graduado', 'degree:sim'), chip('Não, ainda não', 'degree:nao'), chip('Está cursando outra faculdade', 'degree:cursando'));
   }
   if (step === 'goal') {
     text = 'O que ele procura?';
@@ -281,11 +363,11 @@ const ask = (catalog: Catalog, lead: Lead, ctx: Context, step: LeadStep, preface
       .sort((a, b) => b[1] - a[1])
       .slice(0, 5)
       .forEach(([group, total]) => chips.push(chip(AREA_LABEL[group], `area:${group}`, total)));
-    chips.push(chip('Sem preferência', 'area:any'));
+    chips.push(chip('Sem preferência', 'area:any'), chip('Ainda não sabe qual curso', 'area:unknown'));
   }
   if (step === 'theme') {
     const base = lead.area && lead.area !== 'any' && lead.area.label ? ` de ${lead.area.label}` : '';
-    text = `Dentro da área${base}, qual tema interessa mais ao aluno?`;
+    text = lead.journey === 'indeciso' ? `Dentro da área${base}, com qual desses assuntos ele se imagina mais envolvido daqui a alguns anos?` : `Dentro da área${base}, qual tema interessa mais ao aluno?`;
     hint = `Há ${pool.length} cursos nessa combinação. Toque num tema ou digite outro.`;
     themeOptions(pool, lead).forEach(({ token, total }) => chips.push(chip(wordLabel(catalog, token), `theme:${token}`, total)));
     chips.push(chip('Qualquer tema', 'theme:any'));
@@ -319,11 +401,45 @@ const ask = (catalog: Catalog, lead: Lead, ctx: Context, step: LeadStep, preface
     hint = 'Se for urgente, ordeno pelos cursos mais rápidos e lembro de conferir data de início ou limite de inclusão.';
     chips.push(chip('Quer começar já', 'urgency:now'), chip('Pode esperar', 'urgency:later'));
   }
+  if (step === 'motivation') {
+    text = `E o que está motivando a busca por ${nounOf(lead)} neste momento?`;
+    hint = 'Pergunte com leveza e escute: o que ele disser vai guiar o resto da conversa. Se a resposta for curta ("trabalho", "quero crescer"), aprofunde em vez de argumentar.';
+    Object.entries(MOTIVATION_LABEL).forEach(([key, label]) => chips.push(chip(label.charAt(0).toUpperCase() + label.slice(1), `motivation:${key}`)));
+    chips.push(chip('Não sei', 'motivation:any'));
+  }
   if (step === 'objective') {
-    text = 'Qual o objetivo dele com o curso?';
-    hint = 'Isso ajuda você a conduzir a conversa e fica na ficha do atendimento.';
-    Object.entries(OBJECTIVE_LABEL).forEach(([key, label]) => chips.push(chip(label.charAt(0).toUpperCase() + label.slice(1), `objective:${key}`)));
+    text = `O que ele gostaria que ${nounOf(lead)} mudasse na vida profissional dele?`;
+    hint = 'Não presuma: descubra com ele. Depois, use as palavras dele para mostrar o curso.';
+    objectiveOptions(lead).forEach((key) => chips.push(chip(OBJECTIVE_LABEL[key].charAt(0).toUpperCase() + OBJECTIVE_LABEL[key].slice(1), `objective:${key}`)));
     chips.push(chip('Não sei', 'objective:any'));
+  }
+  if (step === 'barrier') {
+    text = 'O que poderia impedir ele de começar agora?';
+    hint = 'Saber a barreira antes ajuda a preparar a resposta. Se não houver nenhuma, siga para a decisão.';
+    Object.entries(BARRIER_LABEL).forEach(([key, label]) => chips.push(chip(label.charAt(0).toUpperCase() + label.slice(1), `barrier:${key}`)));
+    chips.push(chip('Não sei', 'barrier:any'));
+  }
+  if (step === 'transferCourse') {
+    text = 'Qual graduação ele está cursando hoje?';
+    hint = 'Digite o nome do curso. Não prometa equivalência automática de disciplinas: a análise é acadêmica.';
+    chips.push(chip('Prefere não informar', 'transcourse:any'));
+  }
+  if (step === 'transferStage') {
+    text = 'Em que ponto do curso ele está?';
+    Object.entries(TRANSFER_STAGE).forEach(([key, label]) => chips.push(chip(label.charAt(0).toUpperCase() + label.slice(1), `transstage:${key}`)));
+  }
+  if (step === 'transferReason') {
+    text = 'O que o leva a querer mudar de instituição?';
+    hint = 'O motivo mostra o que ele valoriza: valor, estrutura, horário ou cidade.';
+    Object.entries(TRANSFER_REASON).forEach(([key, label]) => chips.push(chip(label.charAt(0).toUpperCase() + label.slice(1), `transreason:${key}`)));
+  }
+  if (step === 'interest') {
+    text = 'Ele ainda não sabe qual curso fazer. Com o que ele mais gosta (e é bom) de trabalhar?';
+    hint = 'Não empurre um curso: descubra primeiro interesses e habilidades, depois a área, e só então apresente opções compatíveis.';
+    INTERESTS.forEach(([group, label]) => {
+      const total = count({ area: { label: AREA_LABEL[group], group, words: [] } });
+      if (total > 0) chips.push(chip(label, `interest:${group}`, total));
+    });
   }
 
   const blocks: Block[] = [...preface, { type: 'text', text }];
@@ -483,8 +599,12 @@ const recommend = (catalog: Catalog, lead: Lead, ctx: Context, preface: Block[] 
     blocks.push({ type: 'text', tone: 'muted', text: 'Como ele quer começar logo, confira no curso a data de início ou o limite de inclusão antes de prometer prazo.' });
   }
   if (lead.tipoKey === 'segunda' && destinations.length === 0) {
-    blocks.push({ type: 'text', tone: 'muted', text: 'Na segunda graduação, o aproveitamento de disciplinas pode reduzir o tempo do curso. Confira a graduação de origem do aluno no Simulador.' });
+    blocks.push({ type: 'text', tone: 'muted', text: 'Na segunda graduação, o aproveitamento depende da análise acadêmica: não prometa redução de duração nem de disciplinas. Confira a graduação de origem do aluno no Simulador.' });
     blocks.push({ type: 'links', items: [{ label: 'Abrir o Simulador', href: '/simulador' }] });
+  }
+
+  if (lead.tipoKey === 'transferencia') {
+    blocks.push({ type: 'text', tone: 'warn', text: 'Transferência: não prometa equivalência automática de disciplinas. A análise é acadêmica e depende dos documentos do aluno.' });
   }
 
   [...new Set(top.map((course) => course.ies))].forEach((ies) => {
@@ -495,7 +615,20 @@ const recommend = (catalog: Catalog, lead: Lead, ctx: Context, preface: Block[] 
   const combos = relatedCombos(catalog, top);
   if (combos.length > 0) blocks.push({ type: 'list', title: 'Combos que podem interessar (veja os valores nos botões)', items: combos.map((combo) => combo.name) });
 
-  blocks.push({ type: 'text', text: 'Para fechar o atendimento: o aluno consegue reunir a documentação esta semana? Posso listar o que cada curso exige.' });
+  // A barreira prevista: o consultor já sabe qual objeção pode aparecer e como se preparar
+  const barrierObjection = lead.barrier ? OBJECTIONS.find((item) => item.id === BARRIER_OBJECTION[lead.barrier as string]) : undefined;
+  if (barrierObjection) {
+    blocks.push({ type: 'coach', stage: 'Prepare-se', note: true, question: `Barreira prevista: ${BARRIER_LABEL[lead.barrier as string]}. Se aparecer, use a resposta de "${barrierObjection.title}".`, tip: 'Pergunte pela barreira antes de ela virar objeção.' });
+  }
+
+  // Uma pergunta só, usando o objetivo que o aluno declarou
+  const goal = lead.objective ? OBJECTIVE_LABEL[lead.objective] : '';
+  blocks.push({
+    type: 'coach',
+    stage: 'Avançar a decisão',
+    question: goal ? `Ele quer ${goal}. Pergunte: “Qual dessas opções faz mais sentido para esse objetivo?”` : 'Pergunte ao aluno: “Qual dessas opções faz mais sentido para o seu momento?”',
+    tip: 'Se ele hesitar, descubra o que falta decidir antes de falar em valores ou documentos.',
+  });
 
   const chips: Chip[] = [
     { label: 'Documentos dessas opções', query: '#i:docs' },
@@ -504,6 +637,7 @@ const recommend = (catalog: Catalog, lead: Lead, ctx: Context, preface: Block[] 
   if (rest.length > 0) chips.push({ label: `Ver outras opções (${rest.length})`, query: '#l:more' });
   combos.forEach((combo) => chips.push({ label: `Combo: ${combo.name.length > 38 ? `${combo.name.slice(0, 37)}…` : combo.name}`, query: `#cb:${combo.id}` }));
   chips.push(lead.sort === 'price' ? chip('Mostrar os mais rápidos', 'sort:fast') : chip('Mostrar os mais baratos', 'sort:price'));
+  if (barrierObjection) chips.push(chip(`Preparar: ${barrierObjection.title}`, `obj:${barrierObjection.id}`));
   chips.push(chip('Aluno com objeção', 'obj'), chip('Mensagem para o aluno', 'msg'), chip('Registrar resultado', 'result'), chip('Mudar respostas', 'edit'), chip('Novo atendimento', 'start'));
 
   return {
@@ -526,6 +660,16 @@ const recommend = (catalog: Catalog, lead: Lead, ctx: Context, preface: Block[] 
 
 const advance = (catalog: Catalog, start: Lead, ctx: Context, preface: Block[] = []): Answer => {
   let lead = start;
+  // Transferência: com curso, ponto e motivo respondidos, a busca segue pelas graduações (e pela área do curso atual, se bater)
+  if (lead.tipos === null && lead.degree === 'cursando' && lead.transfer?.course && lead.transfer.stage && lead.transfer.reason) {
+    lead = setTipo(lead, 'transferencia');
+    const words = tokenize(lead.transfer.course).filter((token) => !STOP.has(token) && !NOISE.has(token));
+    if (lead.area === null && lead.transfer.course !== '-' && words.length > 0) {
+      // tenta o nome inteiro e, se não achar curso, cada palavra (ex.: "Administração de Empresas" -> "administração")
+      const found = [words, ...words.map((word) => [word])].map((candidate) => areaFromWords(catalog, candidate)).find((area) => poolOf(catalog, { ...lead, area }).length > 0);
+      if (found) lead = { ...lead, area: found, themed: true };
+    }
+  }
   if (lead.tipos !== null) {
     const pool = poolOf(catalog, lead);
     // pergunta que não muda nada (uma só área ou modalidade nas opções) não é feita
@@ -533,8 +677,10 @@ const advance = (catalog: Catalog, start: Lead, ctx: Context, preface: Block[] =
     if (lead.modality === null && new Set(pool.map(modalityOf)).size <= 1) lead = { ...lead, modality: '' };
   }
   const pool = poolOf(catalog, lead);
-  const step = nextStep(catalog, lead, pool);
-  if (step === null || (lead.tipos !== null && (pool.length <= TOP || lead.questions >= MAX_QUESTIONS))) return recommend(catalog, lead, ctx, preface);
+  // Com poucas opções (ou perguntas demais), só o diagnóstico continua; os filtros são dispensados
+  const small = lead.tipos !== null && (pool.length <= TOP || lead.questions >= MAX_QUESTIONS);
+  const step = nextStep(catalog, lead, pool, small);
+  if (step === null) return recommend(catalog, lead, ctx, preface);
   return ask(catalog, lead, ctx, step, preface);
 };
 
@@ -558,14 +704,14 @@ const setTipo = (lead: Lead, key: string): Lead => ({
   ...lead,
   tipoKey: key,
   tipos: TIPO_CHOICES[key].tipos,
-  degree: lead.degree || (key === 'pos' || key === 'curta' || key === 'segunda' ? 'sim' : 'nao'),
+  degree: lead.degree || (key === 'pos' || key === 'curta' || key === 'segunda' ? 'sim' : key === 'transferencia' ? 'cursando' : 'nao'),
 });
 
 // Aplica o que a IA (ou o texto livre) entendeu. Cada campo é validado contra as opções que existem.
 const patchLead = (catalog: Catalog, base: Lead, patch: LeadPatch): { lead: Lead; filled: number } => {
   let lead: Lead = { ...base };
   let filled = 0;
-  if (patch.degree === 'sim' || patch.degree === 'nao') {
+  if (patch.degree === 'sim' || patch.degree === 'nao' || patch.degree === 'cursando') {
     lead.degree = patch.degree;
     filled++;
   }
@@ -592,6 +738,14 @@ const patchLead = (catalog: Catalog, base: Lead, patch: LeadPatch): { lead: Lead
   if (patch.urgency === 'now' || patch.urgency === 'later') {
     lead.urgency = patch.urgency;
     if (patch.urgency === 'now') lead.sort = 'fast';
+    filled++;
+  }
+  if (patch.motivation && MOTIVATION_LABEL[patch.motivation]) {
+    lead.motivation = patch.motivation;
+    filled++;
+  }
+  if (patch.barrier && BARRIER_LABEL[patch.barrier]) {
+    lead.barrier = patch.barrier;
     filled++;
   }
   if (patch.polo) {
@@ -703,7 +857,8 @@ export const answerConsultClick = (catalog: Catalog, query: string, ctx: Context
     const objection = OBJECTIONS.find((item) => item.id === value);
     return objection ? answerObjection(catalog, objection, ctx) : answerConsultClick(catalog, '#k:obj', ctx);
   }
-  if (action === 'msg') return studentMessage(catalog, ctx);
+  if (action === 'msg') return studentMessage(catalog, ctx, false);
+  if (action === 'msgval') return studentMessage(catalog, ctx, true);
   if (action === 'ficha') return leadSheet(catalog, ctx);
   if (action === 'result') return resultMenu(ctx);
   if (action === 'won') return recordOutcome(ctx, 'won', '');
@@ -717,7 +872,17 @@ export const answerConsultClick = (catalog: Catalog, query: string, ctx: Context
 
   if (action === 'go') return recommend(catalog, { ...lead, asked: '' }, ctx);
   if (action === 'sort') return recommend(catalog, { ...lead, sort: value === 'fast' ? 'fast' : 'price' }, ctx);
-  if (action === 'degree') return advance(catalog, answered(lead, { degree: value === 'sim' ? 'sim' : 'nao' }), ctx);
+  if (action === 'degree') return advance(catalog, answered(lead, { degree: value === 'sim' ? 'sim' : value === 'cursando' ? 'cursando' : 'nao' }), ctx);
+  if (action === 'transcourse') return advance(catalog, answered(lead, { transfer: { course: '-', stage: lead.transfer?.stage ?? '', reason: lead.transfer?.reason ?? '' } }), ctx);
+  if (action === 'transstage') return advance(catalog, answered(lead, { transfer: { course: lead.transfer?.course ?? '', stage: TRANSFER_STAGE[value] ? value : '-', reason: lead.transfer?.reason ?? '' } }), ctx);
+  if (action === 'transreason') return advance(catalog, answered(lead, { transfer: { course: lead.transfer?.course ?? '', stage: lead.transfer?.stage ?? '', reason: TRANSFER_REASON[value] ? value : 'outro' } }), ctx);
+  if (action === 'interest') {
+    if (!AREA_LABEL[value]) return advance(catalog, lead, ctx);
+    return advance(catalog, answered(lead, { area: { label: AREA_LABEL[value], group: value, words: [] }, journey: 'indeciso' }), ctx);
+  }
+  if (action === 'motivation') return advance(catalog, answered(lead, { motivation: MOTIVATION_LABEL[value] ? value : '' }), ctx);
+  if (action === 'barrier') return advance(catalog, answered(lead, { barrier: BARRIER_LABEL[value] ? value : '' }), ctx);
+  if (action === 'discover') return advance(catalog, { ...lead, asked: '', journey: 'indeciso', area: null, themed: false }, ctx);
   if (action === 'tipo') {
     if (!TIPO_CHOICES[value]) return advance(catalog, lead, ctx);
     return advance(catalog, answered(setTipo(lead, value), {}), ctx);
@@ -732,6 +897,7 @@ export const answerConsultClick = (catalog: Catalog, query: string, ctx: Context
     return advance(catalog, answered(lead, { origin: { id: row.id, label: row.origin } }), ctx);
   }
   if (action === 'area') {
+    if (value === 'unknown') return advance(catalog, { ...lead, asked: '', journey: 'indeciso', area: null, themed: false }, ctx);
     if (value === 'any') return advance(catalog, answered(lead, { area: 'any' }), ctx);
     return advance(catalog, answered(lead, { area: { label: AREA_LABEL[value] ?? value, group: AREA_LABEL[value] ? value : '', words: [] } }), ctx);
   }
@@ -835,11 +1001,43 @@ export const continueConsult = (catalog: Catalog, query: string, ctx: Context): 
   if (lead.asked === 'objective') {
     if (wantsAny) return advance(catalog, answered(lead, { objective: '' }), ctx);
     const folded = foldText(query);
-    const key = /carreira|crescer|promocao|salario|cresc/.test(folded) ? 'carreira' : /mudar|migrar|nova area|transicao/.test(folded) ? 'mudar' : /exig|concurso|vaga|empresa|trabalho/.test(folded) ? 'exigencia' : /diploma|formacao|completar|terminar/.test(folded) ? 'diploma' : '';
+    const key = /concurso/.test(folded) ? 'concurso' : /comecar|primeir[ao] (emprego|profissao)|iniciar/.test(folded) ? 'comecar' : /carreira|crescer|promocao|salario|cresc/.test(folded) ? 'carreira' : /mudar|migrar|nova area|transicao|nova possibilidade/.test(folded) ? 'mudar' : /atualiz/.test(folded) ? 'atualizar' : /complement|horas/.test(folded) ? 'complementar' : /exig|empresa|obrig/.test(folded) ? 'exigencia' : /diploma|formacao|completar|terminar/.test(folded) ? 'diploma' : '';
     return key ? advance(catalog, answered(lead, { objective: key }), ctx) : null;
+  }
+  if (lead.asked === 'transferCourse') {
+    if (wantsAny) return advance(catalog, answered(lead, { transfer: { course: '-', stage: '', reason: '' } }), ctx);
+    const course = query.trim().replace(/\s+/g, ' ').slice(0, 60);
+    return course.length >= 3 ? advance(catalog, answered(lead, { transfer: { course, stage: '', reason: '' } }), ctx) : null;
+  }
+  if (lead.asked === 'transferStage') {
+    const key = all.some((t) => ['pouco', 'comecou', 'comeco', 'inicio', 'primeiro', 'recente'].includes(t)) ? 'inicio' : all.some((t) => ['meio', 'metade'].includes(t)) ? 'meio' : all.some((t) => ['final', 'terminar', 'terminando', 'ultimo', 'perto'].includes(t)) ? 'fim' : '';
+    return key ? advance(catalog, answered(lead, { transfer: { course: lead.transfer?.course ?? '', stage: key, reason: '' } }), ctx) : null;
+  }
+  if (lead.asked === 'transferReason') {
+    const folded = foldText(query);
+    const key = /valor|preco|caro|mensalidade/.test(folded) ? 'valor' : /estrutura|qualidade|professor|ensino/.test(folded) ? 'estrutura' : /horario|modalidade|ead|presencial|noite/.test(folded) ? 'horario' : /cidade|mudei|mudanca|mudar de/.test(folded) ? 'cidade' : '';
+    return advance(catalog, answered(lead, { transfer: { course: lead.transfer?.course ?? '', stage: lead.transfer?.stage ?? '', reason: key || 'outro' } }), ctx);
+  }
+  if (lead.asked === 'interest') {
+    const folded = foldText(query);
+    const group = /ensin|professor|escola|crianca|pessoa|educa/.test(folded) ? 'educacao' : /saude|cuidar|enferm|estetic|bem-estar|corpo/.test(folded) ? 'saude' : /negoc|gestao|admin|empresa|lei|direito|financ/.test(folded) ? 'negocios' : /tecnolog|computa|programa|sistema|dados/.test(folded) ? 'ti' : /arte|design|criati|musica|desenho/.test(folded) ? 'artes' : /construi|obra|engenh|produ|industria/.test(folded) ? 'engenharia' : '';
+    return group ? advance(catalog, answered(lead, { area: { label: AREA_LABEL[group], group, words: [] }, journey: 'indeciso' }), ctx) : null;
+  }
+  if (lead.asked === 'motivation') {
+    if (wantsAny) return advance(catalog, answered(lead, { motivation: '' }), ctx);
+    const folded = foldText(query);
+    const key = /oportunidade|vaga|promoc|concurso|convite/.test(folded) ? 'oportunidade' : /exig|obrig|empresa|lei|pedem/.test(folded) ? 'exigencia' : /insatisf|mudar|cansad|nao aguent|quero sair|situacao/.test(folded) ? 'insatisfacao' : /pessoal|sonho|sempre quis|realiza/.test(folded) ? 'pessoal' : '';
+    return key ? advance(catalog, answered(lead, { motivation: key }), ctx) : null;
+  }
+  if (lead.asked === 'barrier') {
+    if (wantsAny) return advance(catalog, answered(lead, { barrier: '' }), ctx);
+    const folded = foldText(query);
+    const key = /valor|preco|caro|dinheiro|pagar|parcela/.test(folded) ? 'valor' : /tempo|rotina|horario|trabalho|corrido/.test(folded) ? 'tempo' : /familia|marido|esposa|esposo|pai|mae|filho/.test(folded) ? 'familia' : /duvida|confia|reconhec|mec|diploma|valid/.test(folded) ? 'duvida' : /nada|nenhuma|nenhum|decidido|tranquilo/.test(folded) ? 'nenhuma' : '';
+    return key ? advance(catalog, answered(lead, { barrier: key }), ctx) : null;
   }
   if (lead.asked === 'degree') {
     const first = all[0];
+    if (all.some((token) => ['cursando', 'estudando', 'cursa', 'faz'].includes(token)) && all.some((token) => ['faculdade', 'graduacao', 'curso', 'transferir', 'transferencia', 'outra'].includes(token))) return advance(catalog, answered(lead, { degree: 'cursando' }), ctx);
     if (['sim', 'ja', 'tem', 'possui', 'graduado', 'graduada', 'formado', 'formada'].includes(first)) return advance(catalog, answered(lead, { degree: 'sim' }), ctx);
     if (['nao', 'ainda', 'nenhuma', 'nenhum'].includes(first)) return advance(catalog, answered(lead, { degree: 'nao' }), ctx);
     return null;
@@ -862,8 +1060,9 @@ export const answerObjection = (catalog: Catalog, objection: Objection, ctx: Con
   return { reply: { tag: `consulta:objecao:${objection.id}`, blocks, chips, sources: ['aba Cursos'] }, ctx: { ...ctx, lead } };
 };
 
-// Mensagem pronta para o vendedor copiar e enviar ao aluno (só valores da planilha, sem anotações internas)
-const studentMessage = (catalog: Catalog, ctx: Context): Answer => {
+// Mensagem pronta para o vendedor copiar e enviar ao aluno. Por padrão vai SEM valores (preço só quando o aluno pedir);
+// a versão "com condição" traz só "inscrição + parcelas", nunca o valor total.
+const studentMessage = (catalog: Catalog, ctx: Context, withConditions: boolean): Answer => {
   const courses = coursesOf(catalog, ctx).slice(0, TOP);
   if (courses.length === 0) {
     return { reply: textReply('consulta:mensagem-vazia', 'Ainda não há cursos indicados para montar a mensagem. Faça um atendimento primeiro.', [chip('Atender um aluno', 'start')]), ctx };
@@ -871,23 +1070,35 @@ const studentMessage = (catalog: Catalog, ctx: Context): Answer => {
   const blocks: Block[] = [{ type: 'text', text: 'Olá! Conforme nossa conversa, separei estas opções para você:' }];
   courses.forEach((course) => {
     const facts: [string, string][] = [];
-    const total = basePrice(course);
-    if (total !== null) facts.push([course.unicive?.total ? 'Valor integral' : 'Valor integral (D30 no boleto)', money(total)]);
-    const parcels = parcelsText(course);
-    if (parcels) facts.push(['Parcelamento', parcels]);
     if (course.carga) facts.push(['Carga horária', course.carga]);
     if (course.duracao) facts.push(['Duração', course.duracao]);
+    const condition = withConditions ? conditionText(course) : '';
+    if (condition) facts.push(['Condição', condition.charAt(0).toUpperCase() + condition.slice(1)]);
     blocks.push({ type: 'course', title: displayName(course.name), meta: [course.ies, course.tipo, course.modalidade].filter(Boolean) });
     if (facts.length > 0) blocks.push({ type: 'facts', items: facts });
   });
-  blocks.push({ type: 'text', text: 'Se quiser, envio também os documentos necessários para a matrícula. Qual dessas opções você prefere?' });
-  blocks.push({ type: 'text', tone: 'muted', text: 'Use "Copiar resposta" para enviar ao aluno.' });
+  blocks.push({ type: 'text', text: withConditions ? 'Qual dessas opções faz mais sentido para você?' : 'Se quiser, passo as condições de cada uma. Qual delas faz mais sentido para você?' });
+  blocks.push({
+    type: 'coach',
+    stage: 'Antes de enviar',
+    note: true,
+    question: 'Use "Copiar resposta": só o texto acima vai para o aluno.',
+    tip: withConditions
+      ? 'A parcela é calculada a partir da planilha (valor parcelado ÷ parcelas): confirme com o Financeiro antes de enviar. Nunca some as parcelas.'
+      : 'Esta versão não traz valores: passe a condição só quando o aluno perguntar, depois de esclarecer as dúvidas dele.',
+  });
   return {
     reply: {
-      tag: 'consulta:mensagem',
+      tag: withConditions ? 'consulta:mensagem-condicao' : 'consulta:mensagem',
       blocks,
-      chips: [chip('Ficha do atendimento', 'ficha'), chip('Aluno com objeção', 'obj'), chip('Registrar resultado', 'result'), chip('Novo atendimento', 'start')],
-      sources: ['aba Cursos', ...(courses.some((course) => course.unicive) ? ['aba Valores UNICIVE'] : [])],
+      chips: [
+        withConditions ? chip('Mensagem sem valores', 'msg') : chip('Mensagem com condição', 'msgval'),
+        chip('Ficha do atendimento', 'ficha'),
+        chip('Aluno com objeção', 'obj'),
+        chip('Registrar resultado', 'result'),
+        chip('Novo atendimento', 'start'),
+      ],
+      sources: ['aba Cursos', ...(withConditions && courses.some((course) => course.unicive) ? ['aba Valores UNICIVE'] : [])],
     },
     ctx,
   };
@@ -902,6 +1113,14 @@ const leadSheet = (catalog: Catalog, ctx: Context): Answer => {
     return { reply: textReply('consulta:ficha-vazia', 'Ainda não há um atendimento para resumir. Comece um atendimento e eu monto a ficha.', [chip('Atender um aluno', 'start')]), ctx };
   }
   const facts: [string, string][] = [['Perfil do aluno', (ctx.lead ? profileLine(ctx.lead) : '') || 'ainda não definido']];
+  if (ctx.lead) {
+    const lead = ctx.lead;
+    facts.push(['Jornada', lead.tipoKey === 'transferencia' ? 'Transferência' : lead.journey === 'indeciso' ? 'Indeciso (ajudar a escolher o curso)' : lead.tipoKey === 'segunda' ? 'Segunda graduação' : lead.degree === 'nao' ? 'Primeira graduação' : lead.tipoKey ? TIPO_CHOICES[lead.tipoKey]?.label ?? '-' : '-']);
+    if (lead.transfer?.course) facts.push(['Transferência', [lead.transfer.course !== '-' ? lead.transfer.course : '', TRANSFER_STAGE[lead.transfer.stage], TRANSFER_REASON[lead.transfer.reason] ? `motivo: ${TRANSFER_REASON[lead.transfer.reason]}` : ''].filter(Boolean).join(' · ') || 'não informada']);
+    facts.push(['Motivação', lead.motivation ? MOTIVATION_LABEL[lead.motivation] : 'não informada (pergunte)']);
+    facts.push(['Objetivo', lead.objective ? OBJECTIVE_LABEL[lead.objective] ?? lead.objective : 'não informado (pergunte)']);
+    facts.push(['Barreira', lead.barrier ? BARRIER_LABEL[lead.barrier] : 'não informada (pergunte)']);
+  }
   const handled = (ctx.lead?.objections ?? []).map((id) => OBJECTIONS.find((item) => item.id === id)?.title).filter(Boolean) as string[];
   facts.push(['Objeções trabalhadas', handled.length > 0 ? handled.join('; ') : 'nenhuma']);
   const outcome = ctx.lead?.outcome ?? '';

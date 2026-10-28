@@ -1,12 +1,13 @@
 import { foldText } from './courses';
 
 export type Role = 'Administrativo' | 'Consultor' | 'Representante';
-export type Permission = 'postFeed' | 'createNotice' | 'deleteNotice' | 'createUser' | 'viewAnalytics' | 'manageFlyers';
+export type Permission = 'postFeed' | 'createNotice' | 'deleteNotice' | 'createUser' | 'viewAnalytics' | 'manageFlyers' | 'manageVideos';
 
 // Consultor e Representante têm os mesmos privilégios e não podem: publicar no feed, criar nem apagar avisos,
-// criar usuários, ver o painel de análises, nem adicionar ou excluir flyers (só baixam e compartilham).
+// criar usuários, ver o painel de análises, adicionar ou excluir flyers (só baixam e compartilham), nem adicionar ou excluir
+// vídeos do Instagram.
 // Só o Administrativo tem acesso total.
-const DENIED_FOR_RESTRICTED: Permission[] = ['postFeed', 'createNotice', 'deleteNotice', 'createUser', 'viewAnalytics', 'manageFlyers'];
+const DENIED_FOR_RESTRICTED: Permission[] = ['postFeed', 'createNotice', 'deleteNotice', 'createUser', 'viewAnalytics', 'manageFlyers', 'manageVideos'];
 
 export const ROLE_STORAGE_KEY = 'userPerfil';
 

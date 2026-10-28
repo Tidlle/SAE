@@ -16,6 +16,55 @@ export const safeHttpUrl = (value: string | undefined): string => {
   return /^https?:\/\/\S+$/i.test(trimmed) ? trimmed : '';
 };
 
+// Informativo de um curso presencial: a aba Cursos-Presenciais não tem esse link, então ele vem do mesmo curso na aba Cursos
+// (que tem o nome completo, ex.: "IMERSÃO CLÍNICA FULL ... - CAPACITAÇÃO PRESENCIAL - ITAQUERA"). O curso presencial casa com o
+// da aba Cursos quando todas as palavras do nome dele aparecem no outro (turno e dia da semana ficam de fora); em caso de dúvida
+// vence o que repete também o tipo e o polo e tem menos palavras sobrando. Sem correspondência, devolve ''. Quando os nomes das
+// duas abas são diferentes demais, dá para escrever o link na coluna AC ("Informativo") da própria aba Cursos-Presenciais.
+const PERIOD_WORDS = new Set(['manha', 'tarde', 'noite', 'sabado', 'domingo', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'turma']);
+const wordsOf = (value: string): string[] => foldText(value).replace(/[^a-z0-9]+/g, ' ').trim().split(' ').filter(Boolean);
+
+export interface InformativoCandidate {
+  name: string; // nome completo, sem acento e em minúsculas
+  words: string[];
+  link: string;
+}
+
+// Cursos presenciais que usam o informativo de um curso com outro nome na aba Cursos (nome do presencial -> começo do nome do curso).
+// Os dois lados vão sem acento, em minúsculas e sem pontuação.
+const INFORMATIVO_ALIASES: Record<string, string> = {
+  'escleroterapia e enzimas esteticas': 'procedimentos injetaveis e regenerativos',
+};
+
+// Mesma palavra no singular e no plural ("Prática" e "Práticas"): uma começa com a outra e a diferença é de até 2 letras
+const sameWord = (a: string, b: string): boolean => a === b || (Math.min(a.length, b.length) >= 4 && Math.abs(a.length - b.length) <= 2 && (a.startsWith(b) || b.startsWith(a)));
+
+export const informativoCandidates = (rows: string[][], nameIndex: number, linkIndex: number): InformativoCandidate[] =>
+  rows
+    .map((row) => ({ name: wordsOf((row[nameIndex] ?? '').toString()).join(' '), words: wordsOf((row[nameIndex] ?? '').toString()), link: safeHttpUrl((row[linkIndex] ?? '').toString()) }))
+    .filter((candidate) => candidate.link && candidate.words.length > 0);
+
+export const findInformativo = (candidates: InformativoCandidate[], name: string, tipo: string, polo: string): string => {
+  const wanted = wordsOf(name).filter((word) => !PERIOD_WORDS.has(word));
+  if (wanted.length === 0) return '';
+  const alias = INFORMATIVO_ALIASES[wanted.join(' ')];
+  if (alias) {
+    const aliased = candidates.find((candidate) => candidate.name.startsWith(alias));
+    if (aliased) return aliased.link;
+  }
+  const tipoWords = wordsOf(tipo);
+  const poloWord = foldText(polo).trim();
+  let best: { link: string; score: number } | null = null;
+  candidates.forEach((candidate) => {
+    const has = (word: string) => candidate.words.some((other) => sameWord(word, other));
+    if (!wanted.every(has)) return;
+    const tipoShare = tipoWords.length > 0 ? tipoWords.filter(has).length / tipoWords.length : 0;
+    const score = (tipoShare + (poloWord && has(poloWord) ? 1 : 0)) * 10 - (candidate.words.length - wanted.length) * 0.1;
+    if (!best || score > best.score) best = { link: candidate.link, score };
+  });
+  return best ? (best as { link: string }).link : '';
+};
+
 // Documentos e pré-requisitos vêm separados por "/" (ou por quebra de linha).
 export const splitList = (value: string): string[] =>
   (value.includes('/') ? value.split('/') : value.split('\n')).map((item) => item.trim()).filter(Boolean);

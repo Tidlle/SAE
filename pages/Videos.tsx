@@ -1,12 +1,16 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ExternalLink, Instagram, Play, Search, Video as VideoIcon } from 'lucide-react';
+import { ExternalLink, Instagram, Play, Plus, Search, Trash2, Video as VideoIcon } from 'lucide-react';
 import { Layout } from '../components/Layout';
 import { Breadcrumb, Button, Card, SectionTitle } from '../components/UI';
 import { CopyLinkButton, PlayerItem, VideoPlayerModal } from '../components/videos/VideoViewer';
 import { VIDEO_GROUPS, VideoGroup, VideoSection, groupByKey, playlistUrl, sectionVideos } from '../lib/videoLibrary';
 import { embedUrl, instagramEmbedUrl, instagramPostUrl, instagramThumbnailUrl, thumbnailUrl, watchUrl } from '../lib/videos';
 import { foldText } from '../lib/courses';
+import { useLivePlaylists } from '../lib/videoLive';
+import { INSTAGRAM_OTHERS, LiveInstagram, deleteInstagramItem, instagramCode, instagramCoverUrl, useLiveInstagram } from '../lib/instagramLive';
+import { can } from '../lib/permissions';
+import { InstagramAddDialog } from '../components/videos/InstagramAddDialog';
 
 const PREVIEW = 6; // vídeos mostrados por seção antes de "Mostrar todos"
 const SEARCH_FROM = 8; // a busca só aparece quando a página tem mais vídeos que isso
@@ -16,12 +20,20 @@ interface Entry {
   title: string;
   thumbnail?: string; // miniatura do YouTube ou capa salva do Instagram
   external?: boolean; // não abre no player: o botão leva direto ao Instagram
+  liveId?: string; // vídeo adicionado pelo site (aba Instagram): o Administrativo pode remover
   item: PlayerItem;
 }
 
 // Itens de uma seção (YouTube ou Instagram) já no formato do player. Links do Instagram inválidos ficam de fora.
-const entriesOf = (group: VideoGroup, section: VideoSection): Entry[] => {
+const entriesOf = (group: VideoGroup, section: VideoSection, live: LiveInstagram[] = []): Entry[] => {
   if (group.kind === 'instagram') {
+    // Os adicionados pelo site vêm primeiro (os mais novos no topo); os do código, depois
+    const added = live.flatMap((post): Entry[] => {
+      const embedSrc = instagramEmbedUrl(post.url);
+      if (!embedSrc) return [];
+      const title = post.title || 'Conteúdo do Instagram';
+      return [{ key: `live-${post.id}`, title, thumbnail: post.cover ? instagramCoverUrl(post.cover) : undefined, external: post.noPlayer, liveId: post.id, item: { title, embedSrc, url: post.url, platform: 'instagram' as const } }];
+    });
     // Os posts que não abrem no player (semPlayer) vão para o fim da seção
     const entries = (section.instagram ?? []).flatMap((post, index) => {
       const embedSrc = instagramEmbedUrl(post.url);
@@ -29,7 +41,8 @@ const entriesOf = (group: VideoGroup, section: VideoSection): Entry[] => {
       const title = post.title?.trim() || `Conteúdo ${index + 1}`;
       return [{ key: post.url, title, thumbnail: instagramThumbnailUrl(post.url) || undefined, external: post.semPlayer, item: { title, embedSrc, url: instagramPostUrl(post.url), platform: 'instagram' as const } }];
     });
-    return [...entries.filter((entry) => !entry.external), ...entries.filter((entry) => entry.external)];
+    const all = [...added, ...entries];
+    return [...all.filter((entry) => !entry.external), ...all.filter((entry) => entry.external)];
   }
   return sectionVideos(section).map((video) => ({
     key: video.id,
@@ -56,7 +69,7 @@ const GroupTabs: React.FC<{ active: VideoGroup['key'] }> = ({ active }) => (
   </nav>
 );
 
-const VideoCard: React.FC<{ entry: Entry; onPlay: (item: PlayerItem) => void }> = ({ entry, onPlay }) => {
+const VideoCard: React.FC<{ entry: Entry; onPlay: (item: PlayerItem) => void; onRemove?: (entry: Entry) => void }> = ({ entry, onPlay, onRemove }) => {
   const instagram = entry.item.platform === 'instagram';
   const open = () => {
     if (entry.external) window.open(entry.item.url, '_blank', 'noopener,noreferrer');
@@ -92,6 +105,17 @@ const VideoCard: React.FC<{ entry: Entry; onPlay: (item: PlayerItem) => void }> 
             {entry.external ? 'Abrir no Instagram' : instagram ? 'Ver aqui' : 'Assistir agora'}
           </Button>
           <CopyLinkButton url={entry.item.url} />
+          {onRemove && entry.liveId && (
+            <button
+              type="button"
+              onClick={() => onRemove(entry)}
+              aria-label={`Remover: ${entry.title}`}
+              title="Remover este vídeo"
+              className="px-3 rounded-full border border-sae-border text-sae-muted hover:text-sae-danger hover:border-sae-danger transition-colors"
+            >
+              <Trash2 size={15} />
+            </button>
+          )}
         </div>
       </div>
     </Card>
@@ -105,8 +129,40 @@ const VideoLibraryPage: React.FC<{ groupKey: VideoGroup['key'] }> = ({ groupKey 
   const [search, setSearch] = useState('');
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const closePlayer = useCallback(() => setPlaying(null), []);
+  const liveVersion = useLivePlaylists(); // muda quando chegam vídeos novos do YouTube
+  const { items: liveInstagram, reload: reloadInstagram } = useLiveInstagram();
+  const mayManage = group.kind === 'instagram' && can('manageVideos');
+  const [adding, setAdding] = useState(false);
 
-  const sections = useMemo(() => group.sections.map((section) => ({ section, entries: entriesOf(group, section) })), [group]);
+  // Temas do código mais "Outros conteúdos" (que só existe quando há vídeo adicionado que não é de nenhum tema)
+  const sections = useMemo(() => {
+    const base = group.sections;
+    const knownIds = new Set(base.map((section) => section.id));
+    const hasOthers = group.kind === 'instagram' && liveInstagram.some((post) => !knownIds.has(post.section));
+    const all = hasOthers ? [...base, { id: INSTAGRAM_OTHERS, title: 'Outros conteúdos' } as VideoSection] : base;
+    return all.map((section) => ({
+      section,
+      entries: entriesOf(group, section, group.kind === 'instagram' ? liveInstagram.filter((post) => (section.id === INSTAGRAM_OTHERS ? !knownIds.has(post.section) : post.section === section.id)) : []),
+    }));
+  }, [group, liveVersion, liveInstagram]);
+
+  // Posts que já estão no site (do código e adicionados), para não repetir
+  const knownCodes = useMemo(() => {
+    const codes = new Set<string>();
+    group.sections.forEach((section) => (section.instagram ?? []).forEach((post) => codes.add(instagramCode(post.url))));
+    liveInstagram.forEach((post) => codes.add(instagramCode(post.url)));
+    return codes;
+  }, [group, liveInstagram]);
+
+  const removeLive = async (entry: Entry) => {
+    if (!entry.liveId || !window.confirm(`Remover "${entry.title}" do site?`)) return;
+    try {
+      await deleteInstagramItem(entry.liveId, localStorage.getItem('userLogin') ?? '');
+      await reloadInstagram();
+    } catch (problem) {
+      window.alert(problem instanceof Error ? problem.message : 'Não foi possível remover agora.');
+    }
+  };
   const total = sections.reduce((sum, item) => sum + item.entries.length, 0);
   const term = foldText(search).trim();
   const visible = sections
@@ -119,7 +175,14 @@ const VideoLibraryPage: React.FC<{ groupKey: VideoGroup['key'] }> = ({ groupKey 
     <Layout>
       <div className="container mx-auto px-4 lg:px-8 py-12">
         <Breadcrumb items={[{ label: 'Conteúdos', path: '#' }, { label: group.navLabel }]} />
-        <SectionTitle title={group.title} />
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <SectionTitle title={group.title} />
+          {mayManage && (
+            <Button size="sm" onClick={() => setAdding(true)}>
+              <Plus size={16} className="mr-1.5" /> Adicionar vídeo do Instagram
+            </Button>
+          )}
+        </div>
         <GroupTabs active={group.key} />
 
         {sections.length === 0 ? (
@@ -185,7 +248,7 @@ const VideoLibraryPage: React.FC<{ groupKey: VideoGroup['key'] }> = ({ groupKey 
                       <>
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
                           {list.map((entry) => (
-                            <VideoCard key={entry.key} entry={entry} onPlay={setPlaying} />
+                            <VideoCard key={entry.key} entry={entry} onPlay={setPlaying} onRemove={mayManage ? removeLive : undefined} />
                           ))}
                         </div>
                         {!term && shown.length > PREVIEW && (
@@ -206,6 +269,15 @@ const VideoLibraryPage: React.FC<{ groupKey: VideoGroup['key'] }> = ({ groupKey 
       </div>
 
       <VideoPlayerModal item={playing} onClose={closePlayer} />
+      {mayManage && (
+        <InstagramAddDialog
+          open={adding}
+          sections={[...group.sections.map((section) => ({ id: section.id, title: section.title })), { id: INSTAGRAM_OTHERS, title: 'Outros conteúdos' }]}
+          knownCodes={knownCodes}
+          onClose={() => setAdding(false)}
+          onAdded={() => void reloadInstagram()}
+        />
+      )}
     </Layout>
   );
 };
